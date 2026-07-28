@@ -7,9 +7,12 @@ import {
   useState,
 } from "react";
 
-import { currentUser, services as initialServices } from "../data/mockData";
+import {
+  currentUser,
+  services as initialServices,
+} from "../data/mockData";
 
-type HistoryItem = {
+export type HistoryItem = {
   id: number;
   type: string;
   description: string;
@@ -17,11 +20,14 @@ type HistoryItem = {
   date: string;
 };
 
-type User = {
+export type User = {
   name: string;
   email?: string;
   phone?: string;
   city: string;
+  community?: string;
+  bio?: string;
+  skills?: string[];
   avatar?: string;
   credits: number;
   offeredServices: string[];
@@ -39,6 +45,9 @@ export type Service = {
   credits: number;
   avatar?: string;
   rating?: number;
+  description?: string;
+  serviceType?: "offer" | "request";
+  createdAt?: string;
 };
 
 export type ServiceRequest = {
@@ -78,11 +87,15 @@ export type NotificationItem = {
   supabaseId?: string;
   title: string;
   message: string;
-  type: "service" | "request" | "credit" | "review" | "chat";
+  type:
+    | "service"
+    | "request"
+    | "credit"
+    | "review"
+    | "chat";
   read: boolean;
   date: string;
 };
-
 
 type AppContextType = {
   user: User;
@@ -94,16 +107,30 @@ type AppContextType = {
   favoriteServiceIds: number[];
   isLoading: boolean;
   updateUser: (newUser: Partial<User>) => void;
-  addService: (service: Omit<Service, "id">) => void;
-  updateService: (id: number, updatedService: Partial<Service>) => void;
+  addService: (
+    service: Omit<Service, "id">
+  ) => void;
+  updateService: (
+    id: number,
+    updatedService: Partial<Service>
+  ) => void;
   deleteService: (id: number) => void;
   createRequest: (service: Service) => boolean;
-  createIncomingRequest: (service: Service) => void;
-  completeRequest: (requestId: number) => boolean;
+  createIncomingRequest: (
+    service: Service
+  ) => void;
+  completeRequest: (
+    requestId: number
+  ) => boolean;
   cancelRequest: (requestId: number) => void;
   toggleFavorite: (serviceId: number) => void;
-  addReview: (review: Omit<Review, "id" | "date">) => void;
-  sendMessage: (conversationWith: string, text: string) => void;
+  addReview: (
+    review: Omit<Review, "id" | "date">
+  ) => void;
+  sendMessage: (
+    conversationWith: string,
+    text: string
+  ) => void;
   markNotificationsAsRead: () => void;
   clearNotifications: () => void;
   resetLocalData: () => void;
@@ -115,19 +142,44 @@ const REQUESTS_STORAGE_KEY = "banco_tiempo_requests";
 const FAVORITES_STORAGE_KEY = "banco_tiempo_favorites";
 const REVIEWS_STORAGE_KEY = "banco_tiempo_reviews";
 const MESSAGES_STORAGE_KEY = "banco_tiempo_messages";
-const NOTIFICATIONS_STORAGE_KEY = "banco_tiempo_notifications";
+const NOTIFICATIONS_STORAGE_KEY =
+  "banco_tiempo_notifications";
 
-const AppContext = createContext<AppContextType | undefined>(undefined);
+const AppContext =
+  createContext<AppContextType | undefined>(
+    undefined
+  );
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User>(currentUser);
-  const [services, setServices] = useState<Service[]>(initialServices);
-  const [requests, setRequests] = useState<ServiceRequest[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [favoriteServiceIds, setFavoriteServiceIds] = useState<number[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export function AppProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const [user, setUser] =
+    useState<User>(currentUser);
+
+  const [services, setServices] =
+    useState<Service[]>(initialServices);
+
+  const [requests, setRequests] =
+    useState<ServiceRequest[]>([]);
+
+  const [reviews, setReviews] =
+    useState<Review[]>([]);
+
+  const [messages, setMessages] =
+    useState<ChatMessage[]>([]);
+
+  const [notifications, setNotifications] =
+    useState<NotificationItem[]>([]);
+
+  const [
+    favoriteServiceIds,
+    setFavoriteServiceIds,
+  ] = useState<number[]>([]);
+
+  const [isLoading, setIsLoading] =
+    useState(true);
 
   useEffect(() => {
     loadLocalData();
@@ -135,13 +187,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isLoading) {
-      AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
-      AsyncStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(services));
-      AsyncStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(requests));
-      AsyncStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteServiceIds));
-      AsyncStorage.setItem(REVIEWS_STORAGE_KEY, JSON.stringify(reviews));
-      AsyncStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(messages));
-      AsyncStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(notifications));
+      AsyncStorage.setItem(
+        USER_STORAGE_KEY,
+        JSON.stringify(user)
+      );
+
+      AsyncStorage.setItem(
+        SERVICES_STORAGE_KEY,
+        JSON.stringify(services)
+      );
+
+      AsyncStorage.setItem(
+        REQUESTS_STORAGE_KEY,
+        JSON.stringify(requests)
+      );
+
+      AsyncStorage.setItem(
+        FAVORITES_STORAGE_KEY,
+        JSON.stringify(favoriteServiceIds)
+      );
+
+      AsyncStorage.setItem(
+        REVIEWS_STORAGE_KEY,
+        JSON.stringify(reviews)
+      );
+
+      AsyncStorage.setItem(
+        MESSAGES_STORAGE_KEY,
+        JSON.stringify(messages)
+      );
+
+      AsyncStorage.setItem(
+        NOTIFICATIONS_STORAGE_KEY,
+        JSON.stringify(notifications)
+      );
     }
   }, [
     user,
@@ -156,23 +235,96 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadLocalData = async () => {
     try {
-      const savedUser = await AsyncStorage.getItem(USER_STORAGE_KEY);
-      const savedServices = await AsyncStorage.getItem(SERVICES_STORAGE_KEY);
-      const savedRequests = await AsyncStorage.getItem(REQUESTS_STORAGE_KEY);
-      const savedFavorites = await AsyncStorage.getItem(FAVORITES_STORAGE_KEY);
-      const savedReviews = await AsyncStorage.getItem(REVIEWS_STORAGE_KEY);
-      const savedMessages = await AsyncStorage.getItem(MESSAGES_STORAGE_KEY);
-      const savedNotifications = await AsyncStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+      const savedUser =
+        await AsyncStorage.getItem(
+          USER_STORAGE_KEY
+        );
 
-      if (savedUser) setUser(JSON.parse(savedUser));
-      if (savedServices) setServices(JSON.parse(savedServices));
-      if (savedRequests) setRequests(JSON.parse(savedRequests));
-      if (savedFavorites) setFavoriteServiceIds(JSON.parse(savedFavorites));
-      if (savedReviews) setReviews(JSON.parse(savedReviews));
-      if (savedMessages) setMessages(JSON.parse(savedMessages));
-      if (savedNotifications) setNotifications(JSON.parse(savedNotifications));
+      const savedServices =
+        await AsyncStorage.getItem(
+          SERVICES_STORAGE_KEY
+        );
+
+      const savedRequests =
+        await AsyncStorage.getItem(
+          REQUESTS_STORAGE_KEY
+        );
+
+      const savedFavorites =
+        await AsyncStorage.getItem(
+          FAVORITES_STORAGE_KEY
+        );
+
+      const savedReviews =
+        await AsyncStorage.getItem(
+          REVIEWS_STORAGE_KEY
+        );
+
+      const savedMessages =
+        await AsyncStorage.getItem(
+          MESSAGES_STORAGE_KEY
+        );
+
+      const savedNotifications =
+        await AsyncStorage.getItem(
+          NOTIFICATIONS_STORAGE_KEY
+        );
+
+      if (savedUser) {
+        const parsedUser = JSON.parse(savedUser);
+
+        setUser({
+          ...currentUser,
+          ...parsedUser,
+          community:
+            parsedUser.community ?? "",
+          bio: parsedUser.bio ?? "",
+          skills: Array.isArray(parsedUser.skills)
+            ? parsedUser.skills
+            : [],
+        });
+      }
+
+      if (savedServices) {
+        setServices(
+          JSON.parse(savedServices)
+        );
+      }
+
+      if (savedRequests) {
+        setRequests(
+          JSON.parse(savedRequests)
+        );
+      }
+
+      if (savedFavorites) {
+        setFavoriteServiceIds(
+          JSON.parse(savedFavorites)
+        );
+      }
+
+      if (savedReviews) {
+        setReviews(
+          JSON.parse(savedReviews)
+        );
+      }
+
+      if (savedMessages) {
+        setMessages(
+          JSON.parse(savedMessages)
+        );
+      }
+
+      if (savedNotifications) {
+        setNotifications(
+          JSON.parse(savedNotifications)
+        );
+      }
     } catch (error) {
-      console.log("Error cargando datos locales:", error);
+      console.log(
+        "Error cargando datos locales:",
+        error
+      );
     } finally {
       setIsLoading(false);
     }
@@ -183,34 +335,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     message: string,
     type: NotificationItem["type"]
   ) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
-    setNotifications((previousNotifications) => [
-      {
-        id: Date.now(),
-        title,
-        message,
-        type,
-        read: false,
-        date: today,
-      },
-      ...previousNotifications,
-    ]);
-  };
-
-  const updateUser = (newUser: Partial<User>) => {
-    setUser((previousUser) => ({ ...previousUser, ...newUser }));
-
-    addNotification(
-      "Perfil actualizado",
-      "Tu información de perfil fue actualizada.",
-      "service"
+    setNotifications(
+      (previousNotifications) => [
+        {
+          id: Date.now(),
+          title,
+          message,
+          type,
+          read: false,
+          date: today,
+        },
+        ...previousNotifications,
+      ]
     );
   };
 
-  const addService = (service: Omit<Service, "id">) => {
+  /*
+   * Sin notificación automática.
+   * Esta función también se usa para sincronizar
+   * el perfil leído desde Supabase.
+   */
+  const updateUser = (
+    newUser: Partial<User>
+  ) => {
+    setUser((previousUser) => ({
+      ...previousUser,
+      ...newUser,
+    }));
+  };
+
+  const addService = (
+    service: Omit<Service, "id">
+  ) => {
     setServices((previousServices) => [
-      { ...service, id: Date.now() },
+      {
+        ...service,
+        id: Date.now(),
+      },
       ...previousServices,
     ]);
 
@@ -221,10 +386,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const updateService = (id: number, updatedService: Partial<Service>) => {
+  const updateService = (
+    id: number,
+    updatedService: Partial<Service>
+  ) => {
     setServices((previousServices) =>
       previousServices.map((service) =>
-        service.id === id ? { ...service, ...updatedService } : service
+        service.id === id
+          ? {
+              ...service,
+              ...updatedService,
+            }
+          : service
       )
     );
 
@@ -237,11 +410,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteService = (id: number) => {
     setServices((previousServices) =>
-      previousServices.filter((service) => service.id !== id)
+      previousServices.filter(
+        (service) => service.id !== id
+      )
     );
 
-    setFavoriteServiceIds((previousFavorites) =>
-      previousFavorites.filter((serviceId) => serviceId !== id)
+    setFavoriteServiceIds(
+      (previousFavorites) =>
+        previousFavorites.filter(
+          (serviceId) => serviceId !== id
+        )
     );
 
     addNotification(
@@ -251,10 +429,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const createRequest = (service: Service) => {
-    if (user.credits < service.credits) return false;
+  const createRequest = (
+    service: Service
+  ) => {
+    if (user.credits < service.credits) {
+      return false;
+    }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
     const newRequest: ServiceRequest = {
       id: Date.now(),
@@ -267,7 +451,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       date: today,
     };
 
-    setRequests((previousRequests) => [newRequest, ...previousRequests]);
+    setRequests((previousRequests) => [
+      newRequest,
+      ...previousRequests,
+    ]);
 
     addNotification(
       "Solicitud creada",
@@ -278,8 +465,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const createIncomingRequest = (service: Service) => {
-    const today = new Date().toISOString().slice(0, 10);
+  const createIncomingRequest = (
+    service: Service
+  ) => {
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
     const newRequest: ServiceRequest = {
       id: Date.now(),
@@ -292,7 +483,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       date: today,
     };
 
-    setRequests((previousRequests) => [newRequest, ...previousRequests]);
+    setRequests((previousRequests) => [
+      newRequest,
+      ...previousRequests,
+    ]);
 
     addNotification(
       "Nueva solicitud recibida",
@@ -301,21 +495,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const completeRequest = (requestId: number) => {
-    const selectedRequest = requests.find((request) => request.id === requestId);
+  const completeRequest = (
+    requestId: number
+  ) => {
+    const selectedRequest =
+      requests.find(
+        (request) =>
+          request.id === requestId
+      );
 
-    if (!selectedRequest || selectedRequest.status !== "pending") return false;
+    if (
+      !selectedRequest ||
+      selectedRequest.status !== "pending"
+    ) {
+      return false;
+    }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
-    const isRequester = selectedRequest.requesterName === user.name;
-    const isProvider = selectedRequest.providerName === user.name;
+    const isRequester =
+      selectedRequest.requesterName ===
+      user.name;
 
-    if (isRequester && user.credits < selectedRequest.credits) return false;
+    const isProvider =
+      selectedRequest.providerName ===
+      user.name;
+
+    if (
+      isRequester &&
+      user.credits <
+        selectedRequest.credits
+    ) {
+      return false;
+    }
 
     setRequests((previousRequests) =>
       previousRequests.map((request) =>
-        request.id === requestId ? { ...request, status: "completed" } : request
+        request.id === requestId
+          ? {
+              ...request,
+              status: "completed",
+            }
+          : request
       )
     );
 
@@ -323,13 +546,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (isProvider) {
         return {
           ...previousUser,
-          credits: previousUser.credits + selectedRequest.credits,
+          credits:
+            previousUser.credits +
+            selectedRequest.credits,
           history: [
             {
               id: Date.now(),
               type: "earned",
               description: `Completó ${selectedRequest.serviceName} para ${selectedRequest.requesterName}`,
-              credits: selectedRequest.credits,
+              credits:
+                selectedRequest.credits,
               date: today,
             },
             ...previousUser.history,
@@ -339,13 +565,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       return {
         ...previousUser,
-        credits: previousUser.credits - selectedRequest.credits,
+        credits:
+          previousUser.credits -
+          selectedRequest.credits,
         history: [
           {
             id: Date.now(),
             type: "spent",
             description: `Completó ${selectedRequest.serviceName} con ${selectedRequest.providerName}`,
-            credits: selectedRequest.credits,
+            credits:
+              selectedRequest.credits,
             date: today,
           },
           ...previousUser.history,
@@ -364,10 +593,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const cancelRequest = (requestId: number) => {
+  const cancelRequest = (
+    requestId: number
+  ) => {
     setRequests((previousRequests) =>
       previousRequests.map((request) =>
-        request.id === requestId ? { ...request, status: "cancelled" } : request
+        request.id === requestId
+          ? {
+              ...request,
+              status: "cancelled",
+            }
+          : request
       )
     );
 
@@ -378,18 +614,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const toggleFavorite = (serviceId: number) => {
-    setFavoriteServiceIds((previousFavorites) => {
-      if (previousFavorites.includes(serviceId)) {
-        return previousFavorites.filter((id) => id !== serviceId);
-      }
+  const toggleFavorite = (
+    serviceId: number
+  ) => {
+    setFavoriteServiceIds(
+      (previousFavorites) => {
+        if (
+          previousFavorites.includes(
+            serviceId
+          )
+        ) {
+          return previousFavorites.filter(
+            (id) => id !== serviceId
+          );
+        }
 
-      return [...previousFavorites, serviceId];
-    });
+        return [
+          ...previousFavorites,
+          serviceId,
+        ];
+      }
+    );
   };
 
-  const addReview = (review: Omit<Review, "id" | "date">) => {
-    const today = new Date().toISOString().slice(0, 10);
+  const addReview = (
+    review: Omit<
+      Review,
+      "id" | "date"
+    >
+  ) => {
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
     setReviews((previousReviews) => [
       {
@@ -407,8 +663,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const sendMessage = (conversationWith: string, text: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+  const sendMessage = (
+    conversationWith: string,
+    text: string
+  ) => {
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
     const newMessage: ChatMessage = {
       id: Date.now(),
@@ -418,7 +679,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       date: today,
     };
 
-    setMessages((previousMessages) => [...previousMessages, newMessage]);
+    setMessages((previousMessages) => [
+      ...previousMessages,
+      newMessage,
+    ]);
 
     addNotification(
       "Mensaje enviado",
@@ -427,29 +691,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const markNotificationsAsRead = () => {
-    setNotifications((previousNotifications) =>
-      previousNotifications.map((notification) => ({
-        ...notification,
-        read: true,
-      }))
-    );
-  };
+  const markNotificationsAsRead =
+    () => {
+      setNotifications(
+        (previousNotifications) =>
+          previousNotifications.map(
+            (notification) => ({
+              ...notification,
+              read: true,
+            })
+          )
+      );
+    };
 
   const clearNotifications = () => {
     setNotifications([]);
   };
 
   const resetLocalData = async () => {
-    await AsyncStorage.removeItem(USER_STORAGE_KEY);
-    await AsyncStorage.removeItem(SERVICES_STORAGE_KEY);
-    await AsyncStorage.removeItem(REQUESTS_STORAGE_KEY);
-    await AsyncStorage.removeItem(FAVORITES_STORAGE_KEY);
-    await AsyncStorage.removeItem(REVIEWS_STORAGE_KEY);
-    await AsyncStorage.removeItem(MESSAGES_STORAGE_KEY);
-    await AsyncStorage.removeItem(NOTIFICATIONS_STORAGE_KEY);
+    await AsyncStorage.removeItem(
+      USER_STORAGE_KEY
+    );
 
-    setUser(currentUser);
+    await AsyncStorage.removeItem(
+      SERVICES_STORAGE_KEY
+    );
+
+    await AsyncStorage.removeItem(
+      REQUESTS_STORAGE_KEY
+    );
+
+    await AsyncStorage.removeItem(
+      FAVORITES_STORAGE_KEY
+    );
+
+    await AsyncStorage.removeItem(
+      REVIEWS_STORAGE_KEY
+    );
+
+    await AsyncStorage.removeItem(
+      MESSAGES_STORAGE_KEY
+    );
+
+    await AsyncStorage.removeItem(
+      NOTIFICATIONS_STORAGE_KEY
+    );
+
+    setUser({
+      ...currentUser,
+      community: "",
+      bio: "",
+      skills: [],
+    });
+
     setServices(initialServices);
     setRequests([]);
     setFavoriteServiceIds([]);
@@ -494,7 +788,9 @@ export function useAppContext() {
   const context = useContext(AppContext);
 
   if (!context) {
-    throw new Error("useAppContext debe usarse dentro de AppProvider");
+    throw new Error(
+      "useAppContext debe usarse dentro de AppProvider"
+    );
   }
 
   return context;

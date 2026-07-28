@@ -1,135 +1,607 @@
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  Alert,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import {
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router";
 
 import Header from "../components/Header";
 import ServiceCard from "../components/ServiceCard";
 import ReviewCard from "../components/ReviewCard";
 
 import { styles } from "../theme/styles";
-import { useAppContext } from "../context/AppContext";
+
+import {
+  useAppContext,
+} from "../context/AppContext";
+
+import {
+  useAuthContext,
+} from "../context/AuthContext";
+
+import {
+  getProfiles,
+} from "../lib/profileApi";
+
+import {
+  getOrCreateConversation,
+  isValidUuid,
+} from "../lib/messageApi";
 
 export default function ProviderProfileScreen() {
-  const { name } = useLocalSearchParams();
+  const params =
+    useLocalSearchParams<{
+      name?: string | string[];
+    }>();
 
-  const { services, reviews } = useAppContext();
+  const providerName =
+    Array.isArray(params.name)
+      ? params.name[0] ?? ""
+      : params.name ?? "";
 
-  const providerName = String(name);
+  const {
+    services,
+    reviews,
+  } = useAppContext();
 
-  const providerServices = services.filter(
-    (service) => service.person === providerName
-  );
+  const {
+    session,
+    authUser,
+  } = useAuthContext();
 
-  const providerReviews = reviews.filter(
-    (review) => review.providerName === providerName
-  );
+  const [
+    providerUserId,
+    setProviderUserId,
+  ] = useState("");
+
+  const [
+    isLoadingProfile,
+    setIsLoadingProfile,
+  ] = useState(true);
+
+  const [
+    isOpeningChat,
+    setIsOpeningChat,
+  ] = useState(false);
+
+  const [
+    profileError,
+    setProfileError,
+  ] = useState("");
+
+  const normalizedProviderName =
+    providerName
+      .trim()
+      .toLowerCase();
+
+  const providerServices =
+    useMemo(() => {
+      return services.filter(
+        (service) =>
+          String(
+            service.person ?? ""
+          )
+            .trim()
+            .toLowerCase() ===
+          normalizedProviderName
+      );
+    }, [
+      services,
+      normalizedProviderName,
+    ]);
+
+  const providerReviews =
+    useMemo(() => {
+      return reviews.filter(
+        (review) =>
+          String(
+            review.providerName ?? ""
+          )
+            .trim()
+            .toLowerCase() ===
+          normalizedProviderName
+      );
+    }, [
+      reviews,
+      normalizedProviderName,
+    ]);
 
   const averageRating =
     providerReviews.length === 0
       ? 0
       : providerReviews.reduce(
-          (total, review) => total + review.rating,
+          (
+            total,
+            review
+          ) =>
+            total +
+            Number(
+              review.rating || 0
+            ),
           0
-        ) / providerReviews.length;
+        ) /
+        providerReviews.length;
+
+  const loadProvider =
+    useCallback(async () => {
+      if (!providerName) {
+        setProviderUserId("");
+        setProfileError(
+          "No se recibió el nombre del proveedor."
+        );
+        setIsLoadingProfile(false);
+        return;
+      }
+
+      try {
+        setIsLoadingProfile(true);
+        setProfileError("");
+
+        const profiles =
+          await getProfiles();
+
+        const foundProfile =
+          profiles.find(
+            (profile) => {
+              const normalizedName =
+                String(
+                  profile.name ?? ""
+                )
+                  .trim()
+                  .toLowerCase();
+
+              const normalizedEmail =
+                String(
+                  profile.email ?? ""
+                )
+                  .trim()
+                  .toLowerCase();
+
+              const emailPrefix =
+                normalizedEmail
+                  .split("@")[0];
+
+              return (
+                normalizedName ===
+                  normalizedProviderName ||
+                normalizedEmail ===
+                  normalizedProviderName ||
+                emailPrefix ===
+                  normalizedProviderName
+              );
+            }
+          );
+
+        const resolvedUserId =
+          foundProfile?.user_id ||
+          "";
+
+        console.log(
+          "PERFIL DEL PROVEEDOR:",
+          {
+            providerName,
+            resolvedUserId,
+            foundProfile,
+          }
+        );
+
+        if (!resolvedUserId) {
+          setProviderUserId("");
+
+          setProfileError(
+            "Este proveedor no tiene una cuenta de usuario asociada."
+          );
+
+          return;
+        }
+
+        if (
+          !isValidUuid(
+            resolvedUserId
+          )
+        ) {
+          setProviderUserId("");
+
+          setProfileError(
+            "El perfil del proveedor no contiene un UUID válido."
+          );
+
+          return;
+        }
+
+        setProviderUserId(
+          resolvedUserId
+        );
+      } catch (error: any) {
+        console.error(
+          "Error buscando proveedor:",
+          error
+        );
+
+        setProviderUserId("");
+
+        setProfileError(
+          error?.message ||
+            "No se pudo cargar el perfil del proveedor."
+        );
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    }, [
+      providerName,
+      normalizedProviderName,
+    ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadProvider();
+    }, [loadProvider])
+  );
+
+  const handleContactProvider =
+    async () => {
+      if (
+        !session ||
+        !authUser?.id
+      ) {
+        router.push("/login");
+        return;
+      }
+
+      if (
+        isOpeningChat
+      ) {
+        return;
+      }
+
+      if (!providerUserId) {
+        Alert.alert(
+          "Proveedor no disponible",
+          profileError ||
+            "No se encontró una cuenta asociada a este proveedor."
+        );
+
+        return;
+      }
+
+      if (
+        !isValidUuid(
+          providerUserId
+        )
+      ) {
+        Alert.alert(
+          "Proveedor no disponible",
+          "El UUID del proveedor no es válido."
+        );
+
+        return;
+      }
+
+      if (
+        providerUserId ===
+        authUser.id
+      ) {
+        Alert.alert(
+          "Tu perfil",
+          "No puedes iniciar una conversación contigo mismo."
+        );
+
+        return;
+      }
+
+      try {
+        setIsOpeningChat(true);
+
+        console.log(
+          "CREANDO CONVERSACIÓN:",
+          {
+            currentUserId:
+              authUser.id,
+
+            providerUserId,
+
+            providerName,
+          }
+        );
+
+        const conversation =
+          await getOrCreateConversation({
+            otherUserId:
+              providerUserId,
+
+            serviceId: null,
+
+            requestId: null,
+
+            serviceName: null,
+          });
+
+        console.log(
+          "CONVERSACIÓN DEVUELTA:",
+          conversation
+        );
+
+        const conversationId =
+          String(
+            conversation.id || ""
+          );
+
+        if (
+          !isValidUuid(
+            conversationId
+          )
+        ) {
+          throw new Error(
+            "La conversación creada no contiene un UUID válido."
+          );
+        }
+
+        /*
+         * Usamos una URL directa.
+         * Así el nombre nunca puede ocupar
+         * accidentalmente el lugar del ID.
+         */
+        const encodedName =
+          encodeURIComponent(
+            providerName
+          );
+
+        router.push(
+          `/chat/${conversationId}?name=${encodedName}`
+        );
+      } catch (error: any) {
+        console.error(
+          "Error creando conversación:",
+          error
+        );
+
+        Alert.alert(
+          "No se pudo abrir el chat",
+          error?.message ||
+            "Ocurrió un error creando la conversación."
+        );
+      } finally {
+        setIsOpeningChat(false);
+      }
+    };
+
+  const isOwnProfile =
+    Boolean(
+      authUser?.id &&
+      providerUserId ===
+        authUser.id
+    );
 
   return (
-    <ScrollView style={styles.page}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{
+        paddingBottom: 50,
+      }}
+    >
       <Header />
 
-      <View style={styles.formSection}>
-        <Text style={styles.screenTitle}>
-          {providerName}
+      <View
+        style={styles.formSection}
+      >
+        <Text
+          style={styles.screenTitle}
+        >
+          {providerName ||
+            "Proveedor"}
         </Text>
 
-        <Text style={styles.screenSubtitle}>
+        <Text
+          style={
+            styles.screenSubtitle
+          }
+        >
           Perfil público del proveedor.
         </Text>
 
-        <View style={styles.profileCard}>
-          <Text style={styles.cardTitle}>
+        <View
+          style={styles.profileCard}
+        >
+          <Text
+            style={styles.cardTitle}
+          >
             Reputación
           </Text>
 
-          <Text style={styles.profileLine}>
-            Reviews recibidas: {providerReviews.length}
-          </Text>
-
-          <Text style={styles.profileLine}>
-            Promedio:{" "}
-            {providerReviews.length === 0
-              ? "Sin reviews"
-              : `${averageRating.toFixed(1)} ⭐`}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.contactButton}
-            onPress={() =>
-              router.push({
-                pathname: "/chat/[name]",
-                params: {
-                  name: providerName,
-                },
-              })
-            }
+          <Text
+            style={styles.profileLine}
           >
-            <Text style={styles.primaryButtonText}>
-              Contactar a {providerName}
+            Reviews recibidas:{" "}
+            {providerReviews.length}
+          </Text>
+
+          <Text
+            style={styles.profileLine}
+          >
+            Promedio:{" "}
+            {providerReviews.length ===
+            0
+              ? "Sin reviews"
+              : `${averageRating.toFixed(
+                  1
+                )} ⭐`}
+          </Text>
+
+          {profileError ? (
+            <Text
+              style={[
+                styles.screenSubtitle,
+                {
+                  marginTop: 12,
+                },
+              ]}
+            >
+              {profileError}
             </Text>
-          </TouchableOpacity>
+          ) : null}
+
+          {!isOwnProfile ? (
+            <TouchableOpacity
+              style={[
+                styles.contactButton,
+
+                (
+                  isLoadingProfile ||
+                  isOpeningChat ||
+                  !providerUserId
+                )
+                  ? {
+                      opacity: 0.5,
+                    }
+                  : null,
+              ]}
+              onPress={
+                handleContactProvider
+              }
+              disabled={
+                isLoadingProfile ||
+                isOpeningChat ||
+                !providerUserId
+              }
+            >
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                {isLoadingProfile
+                  ? "Cargando perfil..."
+                  : isOpeningChat
+                    ? "Abriendo chat..."
+                    : `Contactar a ${providerName}`}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text
+              style={[
+                styles.screenSubtitle,
+                {
+                  marginTop: 14,
+                },
+              ]}
+            >
+              Este es tu perfil público.
+            </Text>
+          )}
         </View>
 
-        <Text style={styles.cardTitle}>
+        <Text
+          style={styles.cardTitle}
+        >
           Servicios publicados
         </Text>
 
-        {providerServices.length === 0 ? (
-          <View style={styles.emptyStateCard}>
-            <Text style={styles.emptyStateTitle}>
+        {providerServices.length ===
+        0 ? (
+          <View
+            style={
+              styles.emptyStateCard
+            }
+          >
+            <Text
+              style={
+                styles.emptyStateTitle
+              }
+            >
               Sin servicios
             </Text>
 
-            <Text style={styles.emptyStateText}>
-              Este proveedor no tiene servicios
-              publicados actualmente.
+            <Text
+              style={
+                styles.emptyStateText
+              }
+            >
+              Este proveedor no tiene
+              servicios publicados
+              actualmente.
             </Text>
           </View>
         ) : (
-          providerServices.map((service) => (
-            <ServiceCard
-              key={service.id}
-              item={service}
-            />
-          ))
+          providerServices.map(
+            (service) => (
+              <ServiceCard
+                key={
+                  service.supabaseId ||
+                  service.id
+                }
+                item={service}
+              />
+            )
+          )
         )}
 
-        <Text style={styles.cardTitle}>
+        <Text
+          style={styles.cardTitle}
+        >
           Reviews
         </Text>
 
-        {providerReviews.length === 0 ? (
-          <View style={styles.emptyStateCard}>
-            <Text style={styles.emptyStateTitle}>
+        {providerReviews.length ===
+        0 ? (
+          <View
+            style={
+              styles.emptyStateCard
+            }
+          >
+            <Text
+              style={
+                styles.emptyStateTitle
+              }
+            >
               Sin reviews
             </Text>
 
-            <Text style={styles.emptyStateText}>
-              Este proveedor aún no ha recibido
-              calificaciones.
+            <Text
+              style={
+                styles.emptyStateText
+              }
+            >
+              Este proveedor aún no ha
+              recibido calificaciones.
             </Text>
           </View>
         ) : (
-          providerReviews.map((review) => (
-            <ReviewCard
-              key={review.id}
-              item={review}
-            />
-          ))
+          providerReviews.map(
+            (review) => (
+              <ReviewCard
+                key={review.id}
+                item={review}
+              />
+            )
+          )
         )}
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push("/services")}
+          onPress={() =>
+            router.push(
+              "/services"
+            )
+          }
         >
-          <Text style={styles.backButtonText}>
+          <Text
+            style={
+              styles.backButtonText
+            }
+          >
             ← Volver a servicios
           </Text>
         </TouchableOpacity>

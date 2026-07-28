@@ -1,215 +1,451 @@
-import { useEffect, useState } from "react";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  Alert,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import {
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router";
 
 import Header from "../components/Header";
+import ServiceCard from "../components/ServiceCard";
 import ReviewCard from "../components/ReviewCard";
 
 import { styles } from "../theme/styles";
 import { useAppContext } from "../context/AppContext";
 import { useAuthContext } from "../context/AuthContext";
 
-import {
-  getServices,
-  mapSupabaseServiceToAppService,
-} from "../lib/serviceApi";
+import { getProfiles } from "../lib/profileApi";
 
 import {
-  getReviews,
-  mapSupabaseReviewToAppReview,
-} from "../lib/reviewApi";
+  getOrCreateConversation,
+  isValidUuid,
+} from "../lib/messageApi";
 
-export default function ServiceDetailScreen() {
-  const { id } = useLocalSearchParams();
+export default function ProviderProfileScreen() {
+  const params = useLocalSearchParams<{
+    name?: string | string[];
+  }>();
 
-  const { session } = useAuthContext();
-  const { favoriteServiceIds, toggleFavorite } = useAppContext();
+  const providerName = Array.isArray(params.name)
+    ? params.name[0] ?? ""
+    : params.name ?? "";
 
-  const serviceId = String(id);
-  const isLoggedIn = !!session;
+  const { services, reviews } = useAppContext();
 
-  const [service, setService] = useState<any>(null);
-  const [serviceReviews, setServiceReviews] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    session,
+    authUser,
+  } = useAuthContext();
 
-  useEffect(() => {
-    loadServiceDetail();
-  }, []);
+  const [
+    providerUserId,
+    setProviderUserId,
+  ] = useState("");
 
-  const loadServiceDetail = async () => {
-    try {
-      setIsLoading(true);
+  const [
+    isLoadingProfile,
+    setIsLoadingProfile,
+  ] = useState(true);
 
-      const servicesData = await getServices();
-      const mappedServices = servicesData.map(mapSupabaseServiceToAppService);
+  const [
+    isOpeningChat,
+    setIsOpeningChat,
+  ] = useState(false);
 
-      const foundService = mappedServices.find(
-        (item) =>
-          item.supabaseId === serviceId ||
-          item.id.toString() === serviceId
-      );
+  const providerServices = useMemo(() => {
+    const normalizedProviderName =
+      providerName.trim().toLowerCase();
 
-      if (foundService) {
-        setService(foundService);
+    return services.filter(
+      (service) =>
+        service.person
+          .trim()
+          .toLowerCase() ===
+        normalizedProviderName
+    );
+  }, [services, providerName]);
 
-        const reviewsData = await getReviews();
-        const mappedReviews = reviewsData.map(mapSupabaseReviewToAppReview);
+  const providerReviews = useMemo(() => {
+    const normalizedProviderName =
+      providerName.trim().toLowerCase();
 
-        const filteredReviews = mappedReviews.filter(
-          (review) => String(review.serviceId) === String(foundService.supabaseId)
+    return reviews.filter(
+      (review) =>
+        review.providerName
+          .trim()
+          .toLowerCase() ===
+        normalizedProviderName
+    );
+  }, [reviews, providerName]);
+
+  const averageRating =
+    providerReviews.length === 0
+      ? 0
+      : providerReviews.reduce(
+          (total, review) =>
+            total + review.rating,
+          0
+        ) / providerReviews.length;
+
+  const loadProviderProfile =
+    useCallback(async () => {
+      if (!providerName) {
+        setProviderUserId("");
+        setIsLoadingProfile(false);
+        return;
+      }
+
+      try {
+        setIsLoadingProfile(true);
+
+        const profiles =
+          await getProfiles();
+
+        const normalizedValue =
+          providerName
+            .trim()
+            .toLowerCase();
+
+        const foundProfile =
+          profiles.find((profile) => {
+            const normalizedName =
+              profile.name
+                ?.trim()
+                .toLowerCase();
+
+            const normalizedEmail =
+              profile.email
+                ?.trim()
+                .toLowerCase();
+
+            const emailPrefix =
+              normalizedEmail
+                ?.split("@")[0];
+
+            return (
+              normalizedName ===
+                normalizedValue ||
+              normalizedEmail ===
+                normalizedValue ||
+              emailPrefix ===
+                normalizedValue
+            );
+          });
+
+        const resolvedUserId =
+          foundProfile?.user_id || "";
+
+        console.log(
+          "PROVIDER PROFILE:",
+          {
+            providerName,
+            resolvedUserId,
+          }
         );
 
-        setServiceReviews(filteredReviews);
+        setProviderUserId(
+          resolvedUserId
+        );
+      } catch (error) {
+        console.error(
+          "Error buscando proveedor:",
+          error
+        );
+
+        setProviderUserId("");
+      } finally {
+        setIsLoadingProfile(false);
       }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    }, [providerName]);
 
-  if (isLoading) {
-    return (
-      <ScrollView style={styles.page}>
-        <Header />
+  useFocusEffect(
+    useCallback(() => {
+      void loadProviderProfile();
+    }, [loadProviderProfile])
+  );
 
-        <View style={styles.formSection}>
-          <Text style={styles.screenTitle}>Cargando detalle...</Text>
-        </View>
-      </ScrollView>
+  const handleContactProvider =
+    async () => {
+      if (!session || !authUser?.id) {
+        router.push("/login");
+        return;
+      }
+
+      if (!providerUserId) {
+        Alert.alert(
+          "Proveedor no disponible",
+          "No se encontró una cuenta asociada a este proveedor."
+        );
+
+        return;
+      }
+
+      if (!isValidUuid(providerUserId)) {
+        Alert.alert(
+          "ID inválido",
+          "El proveedor no tiene un UUID válido en profiles.user_id."
+        );
+
+        return;
+      }
+
+      if (
+        providerUserId ===
+        authUser.id
+      ) {
+        Alert.alert(
+          "Tu perfil",
+          "No puedes iniciar una conversación contigo mismo."
+        );
+
+        return;
+      }
+
+      try {
+        setIsOpeningChat(true);
+
+        const conversation =
+          await getOrCreateConversation({
+            otherUserId:
+              providerUserId,
+
+            serviceId: null,
+            requestId: null,
+            serviceName: null,
+          });
+
+        console.log(
+          "CONVERSATION CREATED:",
+          conversation
+        );
+
+        if (
+          !conversation?.id ||
+          !isValidUuid(conversation.id)
+        ) {
+          throw new Error(
+            "Supabase no devolvió un UUID válido para la conversación."
+          );
+        }
+
+        const encodedName =
+          encodeURIComponent(
+            providerName
+          );
+
+        router.push(
+          `/chat/${conversation.id}?name=${encodedName}`
+        );
+      } catch (error: any) {
+        console.error(
+          "Error abriendo conversación:",
+          error
+        );
+
+        Alert.alert(
+          "No se pudo abrir el chat",
+          error?.message ||
+            "Ocurrió un error creando la conversación."
+        );
+      } finally {
+        setIsOpeningChat(false);
+      }
+    };
+
+  const isOwnProfile =
+    Boolean(
+      authUser?.id &&
+      providerUserId === authUser.id
     );
-  }
-
-  if (!service) {
-    return (
-      <ScrollView style={styles.page}>
-        <Header />
-
-        <View style={styles.formSection}>
-          <Text style={styles.screenTitle}>Servicio no encontrado</Text>
-
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.push("/services")}
-          >
-            <Text style={styles.backButtonText}>← Volver a servicios</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    );
-  }
-
-  const isFavorite = favoriteServiceIds.includes(service.id);
 
   return (
-    <ScrollView style={styles.page}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{
+        paddingBottom: 50,
+      }}
+    >
       <Header />
 
       <View style={styles.formSection}>
-        <Text style={styles.screenTitle}>Detalle del Servicio</Text>
+        <Text style={styles.screenTitle}>
+          {providerName ||
+            "Proveedor"}
+        </Text>
 
-        <View style={styles.confirmCard}>
-          <TouchableOpacity
-            onPress={() =>
-              router.push({
-                pathname: "/provider-profile/[name]",
-                params: {
-                  name: service.person,
-                },
-              })
-            }
+        <Text
+          style={styles.screenSubtitle}
+        >
+          Perfil público del proveedor.
+        </Text>
+
+        <View style={styles.profileCard}>
+          <Text style={styles.cardTitle}>
+            Reputación
+          </Text>
+
+          <Text
+            style={styles.profileLine}
           >
-            <Text style={styles.servicePerson}>{service.person}</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.serviceName}>{service.service}</Text>
-
-          <Text style={styles.serviceDetail}>
-            Categoría: {service.category}
+            Reviews recibidas:{" "}
+            {providerReviews.length}
           </Text>
 
-          <Text style={styles.serviceDetail}>
-            Modalidad: {service.mode}
+          <Text
+            style={styles.profileLine}
+          >
+            Promedio:{" "}
+            {providerReviews.length === 0
+              ? "Sin reviews"
+              : `${averageRating.toFixed(
+                  1
+                )} ⭐`}
           </Text>
 
-          <Text style={styles.serviceCost}>
-            Costo: {service.credits} crédito / hora
-          </Text>
-
-          <Text style={styles.cardTitle}>Descripción</Text>
-
-          <Text style={styles.profileLine}>
-            Este es un servicio comunitario disponible en Banco de Tiempo.
-            Inicia sesión para contactar, guardar favoritos o solicitar el servicio.
-          </Text>
-
-          <Text style={styles.cardTitle}>Reviews</Text>
-
-          {serviceReviews.length === 0 ? (
-            <Text style={styles.profileLine}>
-              Este servicio aún no tiene reviews.
-            </Text>
+          {!isOwnProfile ? (
+            <TouchableOpacity
+              style={
+                styles.contactButton
+              }
+              onPress={
+                handleContactProvider
+              }
+              disabled={
+                isLoadingProfile ||
+                isOpeningChat ||
+                !providerUserId
+              }
+            >
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                {isLoadingProfile
+                  ? "Cargando perfil..."
+                  : isOpeningChat
+                    ? "Abriendo chat..."
+                    : `Contactar a ${providerName}`}
+              </Text>
+            </TouchableOpacity>
           ) : (
-            serviceReviews.map((review) => (
-              <ReviewCard key={review.supabaseId || review.id} item={review} />
-            ))
+            <Text
+              style={[
+                styles.screenSubtitle,
+                {
+                  marginTop: 14,
+                },
+              ]}
+            >
+              Este es tu perfil público.
+            </Text>
           )}
         </View>
 
-        {isLoggedIn ? (
-          <>
-            <TouchableOpacity
-              style={styles.outlineActionButton}
-              onPress={() => toggleFavorite(service.id)}
-            >
-              <Text style={styles.outlineActionButtonText}>
-                {isFavorite ? "Quitar de favoritos" : "Guardar favorito"}
-              </Text>
-            </TouchableOpacity>
+        <Text style={styles.cardTitle}>
+          Servicios publicados
+        </Text>
 
-            <TouchableOpacity
-              style={styles.contactButton}
-              onPress={() =>
-                router.push({
-                  pathname: "/chat/[name]",
-                  params: {
-                    name: service.person,
-                  },
-                })
-              }
-            >
-              <Text style={styles.primaryButtonText}>Contactar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.confirmButton}
-              onPress={() =>
-                router.push({
-                  pathname: "/confirm-service/[id]",
-                  params: {
-                    id: service.supabaseId || service.id.toString(),
-                  },
-                })
-              }
-            >
-              <Text style={styles.primaryButtonText}>Solicitar servicio</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => router.push("/login")}
+        {providerServices.length ===
+        0 ? (
+          <View
+            style={
+              styles.emptyStateCard
+            }
           >
-            <Text style={styles.primaryButtonText}>
-              Iniciar sesión para solicitar
+            <Text
+              style={
+                styles.emptyStateTitle
+              }
+            >
+              Sin servicios
             </Text>
-          </TouchableOpacity>
+
+            <Text
+              style={
+                styles.emptyStateText
+              }
+            >
+              Este proveedor no tiene
+              servicios publicados
+              actualmente.
+            </Text>
+          </View>
+        ) : (
+          providerServices.map(
+            (service) => (
+              <ServiceCard
+                key={service.id}
+                item={service}
+              />
+            )
+          )
         )}
 
+        <Text style={styles.cardTitle}>
+          Reviews
+        </Text>
+
+        {providerReviews.length ===
+        0 ? (
+          <View
+            style={
+              styles.emptyStateCard
+            }
+          >
+            <Text
+              style={
+                styles.emptyStateTitle
+              }
+            >
+              Sin reviews
+            </Text>
+
+            <Text
+              style={
+                styles.emptyStateText
+              }
+            >
+              Este proveedor aún no ha
+              recibido calificaciones.
+            </Text>
+          </View>
+        ) : (
+          providerReviews.map(
+            (review) => (
+              <ReviewCard
+                key={review.id}
+                item={review}
+              />
+            )
+          )
+        )}
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push("/services")}
+          onPress={() =>
+            router.push("/services")
+          }
         >
-          <Text style={styles.backButtonText}>← Volver a servicios</Text>
+          <Text
+            style={
+              styles.backButtonText
+            }
+          >
+            ← Volver a servicios
+          </Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

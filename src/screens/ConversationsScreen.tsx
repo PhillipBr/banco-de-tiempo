@@ -1,240 +1,580 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useState,
+} from "react";
+
 import {
   Alert,
+  Image,
   Platform,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { router } from "expo-router";
+
+import {
+  router,
+  useFocusEffect,
+} from "expo-router";
 
 import Header from "../components/Header";
 
 import { styles } from "../theme/styles";
-import { useAuthContext } from "../context/AuthContext";
 
 import {
+  useAuthContext,
+} from "../context/AuthContext";
+
+import {
+  ConversationSummary,
   deleteConversationInSupabase,
-  getMessages,
-  mapSupabaseMessageToAppMessage,
+  getUserConversations,
 } from "../lib/messageApi";
 
-import { getProfiles } from "../lib/profileApi";
+function formatConversationDate(
+  dateValue?: string | null
+): string {
+  if (!dateValue) {
+    return "";
+  }
+
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const now = new Date();
+
+  const isToday =
+    date.getFullYear() ===
+      now.getFullYear() &&
+    date.getMonth() ===
+      now.getMonth() &&
+    date.getDate() ===
+      now.getDate();
+
+  if (isToday) {
+    return new Intl.DateTimeFormat(
+      "es-CA",
+      {
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    ).format(date);
+  }
+
+  return new Intl.DateTimeFormat(
+    "es-CA",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }
+  ).format(date);
+}
 
 export default function ConversationsScreen() {
-  const { session } = useAuthContext();
+  const {
+    session,
+    authUser,
+    isAuthLoading,
+  } = useAuthContext();
 
-  const [messages, setMessages] = useState<any[]>([]);
-  const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const [
+    conversations,
+    setConversations,
+  ] = useState<
+    ConversationSummary[]
+  >([]);
 
-  useEffect(() => {
-    if (!session) {
-      router.replace("/login");
-      return;
-    }
+  const [
+    isLoading,
+    setIsLoading,
+  ] = useState(true);
 
-    loadMessages();
-  }, [session]);
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
 
-  const openChat = (conversation: string) => {
+  const loadConversations =
+    useCallback(async () => {
+      if (!authUser?.id) {
+        setConversations([]);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const data =
+          await getUserConversations();
+
+        setConversations(data);
+      } catch (error: any) {
+        console.error(
+          "Error cargando conversaciones:",
+          error
+        );
+
+        setErrorMessage(
+          error?.message ||
+            "No se pudieron cargar las conversaciones."
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    }, [authUser?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (
+        !isAuthLoading &&
+        !session
+      ) {
+        router.replace("/login");
+        return;
+      }
+
+      if (
+        session &&
+        authUser?.id
+      ) {
+        loadConversations();
+      }
+    }, [
+      session,
+      authUser?.id,
+      isAuthLoading,
+      loadConversations,
+    ])
+  );
+
+  const openChat = (
+    conversation: ConversationSummary
+  ) => {
     router.push({
-      pathname: "/chat/[name]",
+      pathname: "/chat/[id]",
+
       params: {
-        name: conversation,
+        id:
+          conversation.conversation_id,
+
+        name:
+          conversation.other_user_name,
+
+        serviceName:
+          conversation.service_name ||
+          "",
       },
     });
   };
 
-  const loadMessages = async () => {
-    try {
-      setIsLoading(true);
+  const openProfile = (
+    conversation: ConversationSummary
+  ) => {
+    router.push({
+      pathname:
+        "/provider-profile/[name]",
 
-      const profiles = await getProfiles();
-
-      const data = await getMessages();
-      const mappedMessages = data.map(mapSupabaseMessageToAppMessage);
-
-      const namesMap: Record<string, string> = {};
-
-      mappedMessages.forEach((message) => {
-        const rawName = message.conversationWith;
-
-        const foundProfile = profiles.find((profile) => {
-          const emailPrefix = profile.email?.split("@")[0];
-
-          return (
-            profile.name === rawName ||
-            profile.email === rawName ||
-            emailPrefix === rawName
-          );
-        });
-
-        namesMap[rawName] = foundProfile?.name || rawName;
-      });
-
-      setDisplayNames(namesMap);
-      setMessages(mappedMessages);
-    } catch (error) {
-      console.log("Error cargando conversaciones:", error);
-    } finally {
-      setIsLoading(false);
-    }
+      params: {
+        name:
+          conversation.other_user_name,
+      },
+    });
   };
 
-  const uniqueConversations = useMemo(() => {
-    return Array.from(
-      new Set(messages.map((message) => message.conversationWith))
-    );
-  }, [messages]);
-
-  const handleDeleteConversation = async (conversation: string) => {
-    const deleteChat = async () => {
+  const handleDeleteConversation = (
+    conversation: ConversationSummary
+  ) => {
+    const hideChat = async () => {
       try {
-        await deleteConversationInSupabase(conversation);
-        await loadMessages();
+        await deleteConversationInSupabase(
+          conversation.conversation_id
+        );
+
+        await loadConversations();
       } catch (error: any) {
         Alert.alert(
           "Error",
-          error.message || "No se pudo borrar la conversación."
+          error?.message ||
+            "No se pudo quitar la conversación."
         );
       }
     };
 
-    if (Platform.OS === "web") {
-      const confirmed = window.confirm(
-        `¿Seguro que quieres borrar el chat con ${
-          displayNames[conversation] || conversation
-        }?`
-      );
+    const confirmationText =
+      `¿Quieres quitar el chat con ${conversation.other_user_name}? ` +
+      "La conversación seguirá disponible para la otra persona.";
+
+    if (
+      Platform.OS === "web" &&
+      typeof window !== "undefined"
+    ) {
+      const confirmed =
+        window.confirm(
+          confirmationText
+        );
 
       if (confirmed) {
-        deleteChat();
+        void hideChat();
       }
 
       return;
     }
 
     Alert.alert(
-      "Borrar conversación",
-      `¿Seguro que quieres borrar el chat con ${
-        displayNames[conversation] || conversation
-      }?`,
+      "Quitar conversación",
+      confirmationText,
       [
         {
           text: "Cancelar",
           style: "cancel",
         },
         {
-          text: "Borrar",
+          text: "Quitar",
           style: "destructive",
-          onPress: deleteChat,
+          onPress: () => {
+            void hideChat();
+          },
         },
       ]
     );
   };
 
+  if (
+    isAuthLoading ||
+    isLoading
+  ) {
+    return (
+      <ScrollView style={styles.page}>
+        <Header />
+
+        <View style={styles.formSection}>
+          <Text style={styles.screenTitle}>
+            Cargando conversaciones...
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
-    <ScrollView style={styles.page}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{
+        paddingBottom: 50,
+      }}
+    >
       <Header />
 
       <View style={styles.formSection}>
-        <Text style={styles.screenTitle}>Conversations</Text>
+        <Text style={styles.screenTitle}>
+          Conversaciones
+        </Text>
 
         <Text style={styles.screenSubtitle}>
-          Conversaciones reales cargadas desde Supabase.
+          Mensajes relacionados con
+          servicios e intercambios.
         </Text>
+
+        <TouchableOpacity
+          style={styles.contactButton}
+          onPress={loadConversations}
+        >
+          <Text
+            style={styles.primaryButtonText}
+          >
+            Recargar conversaciones
+          </Text>
+        </TouchableOpacity>
 
         <View style={{ height: 20 }} />
 
-        {isLoading ? (
+        {errorMessage ? (
           <View style={styles.emptyStateCard}>
-            <Text style={styles.emptyStateTitle}>
-              Cargando conversaciones...
+            <Text
+              style={styles.emptyStateTitle}
+            >
+              Error
+            </Text>
+
+            <Text
+              style={styles.emptyStateText}
+            >
+              {errorMessage}
             </Text>
           </View>
-        ) : uniqueConversations.length === 0 ? (
-          <View style={styles.emptyStateCard}>
-            <Text style={styles.emptyStateTitle}>Sin conversaciones</Text>
+        ) : null}
 
-            <Text style={styles.emptyStateText}>
-              Contacta proveedores para iniciar conversaciones.
+        {!errorMessage &&
+        conversations.length === 0 ? (
+          <View style={styles.emptyStateCard}>
+            <Text
+              style={styles.emptyStateTitle}
+            >
+              Sin conversaciones
+            </Text>
+
+            <Text
+              style={styles.emptyStateText}
+            >
+              Contacta a un proveedor o
+              solicitante para comenzar un
+              chat.
             </Text>
           </View>
         ) : (
-          uniqueConversations.map((conversation) => {
-            const conversationMessages = messages.filter(
-              (message) => message.conversationWith === conversation
-            );
+          conversations.map(
+            (conversation) => {
+              const unreadCount =
+                Number(
+                  conversation.unread_count
+                ) || 0;
 
-            const lastMessage =
-              conversationMessages[conversationMessages.length - 1];
-
-            const conversationName =
-              displayNames[conversation] || conversation;
-
-            return (
-              <TouchableOpacity
-                key={conversation}
-                style={styles.conversationCard}
-                activeOpacity={0.85}
-                onPress={() => openChat(conversation)}
-              >
-                <Text style={styles.conversationName}>{conversationName}</Text>
-
-                <Text style={styles.conversationPreview}>
-                  {lastMessage?.text || "Sin mensajes"}
-                </Text>
-
-                <Text style={styles.historyMeta}>{lastMessage?.date}</Text>
-
-                <View style={styles.heroButtons}>
-                  <TouchableOpacity
-                    style={styles.contactButton}
-                    onPress={() => openChat(conversation)}
-                  >
-                    <Text style={styles.primaryButtonText}>Contactar</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.outlineActionButton}
-                    onPress={(event) => {
-                      event.stopPropagation();
-
-                      router.push({
-                        pathname: "/provider-profile/[name]",
-                        params: {
-                          name: conversationName,
-                        },
-                      });
+              return (
+                <TouchableOpacity
+                  key={
+                    conversation.conversation_id
+                  }
+                  style={
+                    styles.conversationCard
+                  }
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    openChat(conversation)
+                  }
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                      marginBottom: 10,
                     }}
                   >
-                    <Text style={styles.outlineActionButtonText}>
-                      Ver perfil
-                    </Text>
-                  </TouchableOpacity>
+                    {conversation.other_user_avatar ? (
+                      <Image
+                        source={{
+                          uri:
+                            conversation.other_user_avatar,
+                        }}
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor:
+                            "#222222",
+                        }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor:
+                            "#333333",
+                          alignItems:
+                            "center",
+                          justifyContent:
+                            "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#FFFFFF",
+                            fontSize: 20,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {conversation
+                            .other_user_name
+                            ?.charAt(0)
+                            .toUpperCase() ||
+                            "U"}
+                        </Text>
+                      </View>
+                    )}
 
-                  <TouchableOpacity
-                    style={styles.dangerButton}
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      handleDeleteConversation(conversation);
-                    }}
+                    <View
+                      style={{
+                        flex: 1,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flexDirection:
+                            "row",
+                          alignItems:
+                            "center",
+                          justifyContent:
+                            "space-between",
+                          gap: 10,
+                        }}
+                      >
+                        <Text
+                          style={
+                            styles.conversationName
+                          }
+                        >
+                          {
+                            conversation.other_user_name
+                          }
+                        </Text>
+
+                        {unreadCount > 0 ? (
+                          <View
+                            style={{
+                              minWidth: 24,
+                              height: 24,
+                              paddingHorizontal: 7,
+                              borderRadius: 12,
+                              backgroundColor:
+                                "#FFFFFF",
+                              alignItems:
+                                "center",
+                              justifyContent:
+                                "center",
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: "#000000",
+                                fontWeight: "700",
+                                fontSize: 12,
+                              }}
+                            >
+                              {unreadCount}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {conversation.service_name ? (
+                        <Text
+                          style={
+                            styles.historyMeta
+                          }
+                        >
+                          {
+                            conversation.service_name
+                          }
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.conversationPreview,
+
+                      unreadCount > 0
+                        ? {
+                            fontWeight: "700",
+                          }
+                        : null,
+                    ]}
+                    numberOfLines={2}
                   >
-                    <Text style={styles.primaryButtonText}>Borrar chat</Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            );
-          })
+                    {conversation.last_message ||
+                      "Sin mensajes todavía"}
+                  </Text>
+
+                  <Text
+                    style={styles.historyMeta}
+                  >
+                    {formatConversationDate(
+                      conversation.last_message_at ||
+                        conversation.updated_at
+                    )}
+                  </Text>
+
+                  <View
+                    style={styles.heroButtons}
+                  >
+                    <TouchableOpacity
+                      style={
+                        styles.contactButton
+                      }
+                      onPress={(event) => {
+                        event.stopPropagation();
+
+                        openChat(
+                          conversation
+                        );
+                      }}
+                    >
+                      <Text
+                        style={
+                          styles.primaryButtonText
+                        }
+                      >
+                        Abrir chat
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={
+                        styles.outlineActionButton
+                      }
+                      onPress={(event) => {
+                        event.stopPropagation();
+
+                        openProfile(
+                          conversation
+                        );
+                      }}
+                    >
+                      <Text
+                        style={
+                          styles.outlineActionButtonText
+                        }
+                      >
+                        Ver perfil
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={
+                        styles.dangerButton
+                      }
+                      onPress={(event) => {
+                        event.stopPropagation();
+
+                        handleDeleteConversation(
+                          conversation
+                        );
+                      }}
+                    >
+                      <Text
+                        style={
+                          styles.primaryButtonText
+                        }
+                      >
+                        Quitar chat
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              );
+            }
+          )
         )}
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push("/")}
+          onPress={() =>
+            router.push("/")
+          }
         >
-          <Text style={styles.backButtonText}>← Volver al inicio</Text>
+          <Text style={styles.backButtonText}>
+            ← Volver al inicio
+          </Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

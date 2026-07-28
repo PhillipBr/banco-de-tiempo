@@ -1,4 +1,4 @@
-import ConversationsScreen from "@/screens/ConversationsScreen";
+import ConversationsScreen from "../screens/ConversationsScreen";
 
 export default function ConversationsRoute() {
   return <ConversationsScreen />;
