@@ -1,11 +1,12 @@
 import {
   useCallback,
-  useMemo,
   useState,
 } from "react";
 
 import {
+  ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -19,30 +20,34 @@ import {
 } from "expo-router";
 
 import Header from "../components/Header";
-import ServiceCard from "../components/ServiceCard";
-import ReviewCard from "../components/ReviewCard";
 
 import { styles } from "../theme/styles";
-import { useAppContext } from "../context/AppContext";
-import { useAuthContext } from "../context/AuthContext";
 
-import { getProfiles } from "../lib/profileApi";
+import {
+  useAuthContext,
+} from "../context/AuthContext";
+
+import {
+  AppService,
+  getServiceById,
+  mapSupabaseServiceToAppService,
+} from "../lib/serviceApi";
 
 import {
   getOrCreateConversation,
   isValidUuid,
 } from "../lib/messageApi";
 
-export default function ProviderProfileScreen() {
-  const params = useLocalSearchParams<{
-    name?: string | string[];
-  }>();
+export default function ServiceDetailScreen() {
+  const params =
+    useLocalSearchParams<{
+      id?: string | string[];
+    }>();
 
-  const providerName = Array.isArray(params.name)
-    ? params.name[0] ?? ""
-    : params.name ?? "";
-
-  const { services, reviews } = useAppContext();
+  const serviceId =
+    Array.isArray(params.id)
+      ? params.id[0] || ""
+      : params.id || "";
 
   const {
     session,
@@ -50,13 +55,15 @@ export default function ProviderProfileScreen() {
   } = useAuthContext();
 
   const [
-    providerUserId,
-    setProviderUserId,
-  ] = useState("");
+    service,
+    setService,
+  ] = useState<AppService | null>(
+    null
+  );
 
   const [
-    isLoadingProfile,
-    setIsLoadingProfile,
+    isLoading,
+    setIsLoading,
   ] = useState(true);
 
   const [
@@ -64,149 +71,113 @@ export default function ProviderProfileScreen() {
     setIsOpeningChat,
   ] = useState(false);
 
-  const providerServices = useMemo(() => {
-    const normalizedProviderName =
-      providerName.trim().toLowerCase();
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
 
-    return services.filter(
-      (service) =>
-        service.person
-          .trim()
-          .toLowerCase() ===
-        normalizedProviderName
-    );
-  }, [services, providerName]);
-
-  const providerReviews = useMemo(() => {
-    const normalizedProviderName =
-      providerName.trim().toLowerCase();
-
-    return reviews.filter(
-      (review) =>
-        review.providerName
-          .trim()
-          .toLowerCase() ===
-        normalizedProviderName
-    );
-  }, [reviews, providerName]);
-
-  const averageRating =
-    providerReviews.length === 0
-      ? 0
-      : providerReviews.reduce(
-          (total, review) =>
-            total + review.rating,
-          0
-        ) / providerReviews.length;
-
-  const loadProviderProfile =
+  const loadService =
     useCallback(async () => {
-      if (!providerName) {
-        setProviderUserId("");
-        setIsLoadingProfile(false);
+      if (!serviceId) {
+        setErrorMessage(
+          "No se encontró el ID de la publicación."
+        );
+
+        setIsLoading(false);
         return;
       }
 
       try {
-        setIsLoadingProfile(true);
+        setIsLoading(true);
+        setErrorMessage("");
 
-        const profiles =
-          await getProfiles();
+        const data =
+          await getServiceById(
+            serviceId
+          );
 
-        const normalizedValue =
-          providerName
-            .trim()
-            .toLowerCase();
+        if (!data) {
+          setService(null);
 
-        const foundProfile =
-          profiles.find((profile) => {
-            const normalizedName =
-              profile.name
-                ?.trim()
-                .toLowerCase();
+          setErrorMessage(
+            "La publicación no existe."
+          );
 
-            const normalizedEmail =
-              profile.email
-                ?.trim()
-                .toLowerCase();
+          return;
+        }
 
-            const emailPrefix =
-              normalizedEmail
-                ?.split("@")[0];
-
-            return (
-              normalizedName ===
-                normalizedValue ||
-              normalizedEmail ===
-                normalizedValue ||
-              emailPrefix ===
-                normalizedValue
-            );
-          });
-
-        const resolvedUserId =
-          foundProfile?.user_id || "";
-
-        console.log(
-          "PROVIDER PROFILE:",
-          {
-            providerName,
-            resolvedUserId,
-          }
+        setService(
+          mapSupabaseServiceToAppService(
+            data
+          )
         );
-
-        setProviderUserId(
-          resolvedUserId
-        );
-      } catch (error) {
+      } catch (error: any) {
         console.error(
-          "Error buscando proveedor:",
+          "Error cargando detalle:",
           error
         );
 
-        setProviderUserId("");
+        setErrorMessage(
+          error?.message ||
+            "No se pudo cargar la publicación."
+        );
       } finally {
-        setIsLoadingProfile(false);
+        setIsLoading(false);
       }
-    }, [providerName]);
+    }, [serviceId]);
 
   useFocusEffect(
     useCallback(() => {
-      void loadProviderProfile();
-    }, [loadProviderProfile])
+      void loadService();
+    }, [loadService])
   );
 
-  const handleContactProvider =
+  const openProviderProfile = () => {
+    if (!service?.person) {
+      return;
+    }
+
+    router.push(
+      `/provider-profile/${encodeURIComponent(
+        service.person
+      )}`
+    );
+  };
+
+  const handleContact =
     async () => {
-      if (!session || !authUser?.id) {
+      if (
+        !session ||
+        !authUser?.id
+      ) {
         router.push("/login");
         return;
       }
 
-      if (!providerUserId) {
-        Alert.alert(
-          "Proveedor no disponible",
-          "No se encontró una cuenta asociada a este proveedor."
-        );
-
+      if (!service) {
         return;
       }
 
-      if (!isValidUuid(providerUserId)) {
+      if (
+        !service.providerUserId ||
+        !isValidUuid(
+          service.providerUserId
+        )
+      ) {
         Alert.alert(
-          "ID inválido",
-          "El proveedor no tiene un UUID válido en profiles.user_id."
+          "Proveedor no disponible",
+          "La publicación no contiene un usuario válido."
         );
 
         return;
       }
 
       if (
-        providerUserId ===
+        service.providerUserId ===
         authUser.id
       ) {
         Alert.alert(
-          "Tu perfil",
+          "Tu publicación",
           "No puedes iniciar una conversación contigo mismo."
         );
 
@@ -219,41 +190,44 @@ export default function ProviderProfileScreen() {
         const conversation =
           await getOrCreateConversation({
             otherUserId:
-              providerUserId,
+              service.providerUserId,
 
-            serviceId: null,
-            requestId: null,
-            serviceName: null,
+            serviceId:
+              service.supabaseId,
+
+            requestId:
+              null,
+
+            serviceName:
+              service.service,
           });
 
-        console.log(
-          "CONVERSATION CREATED:",
-          conversation
-        );
-
         if (
-          !conversation?.id ||
-          !isValidUuid(conversation.id)
+          !isValidUuid(
+            conversation.id
+          )
         ) {
           throw new Error(
-            "Supabase no devolvió un UUID válido para la conversación."
+            "No se recibió un ID válido para la conversación."
           );
         }
 
-        const encodedName =
-          encodeURIComponent(
-            providerName
-          );
+        router.push({
+          pathname:
+            "/chat/[id]",
 
-        router.push(
-          `/chat/${conversation.id}?name=${encodedName}`
-        );
+          params: {
+            id:
+              conversation.id,
+
+            name:
+              service.person,
+
+            serviceName:
+              service.service,
+          },
+        });
       } catch (error: any) {
-        console.error(
-          "Error abriendo conversación:",
-          error
-        );
-
         Alert.alert(
           "No se pudo abrir el chat",
           error?.message ||
@@ -264,68 +238,253 @@ export default function ProviderProfileScreen() {
       }
     };
 
-  const isOwnProfile =
-    Boolean(
-      authUser?.id &&
-      providerUserId === authUser.id
+  if (isLoading) {
+    return (
+      <ScrollView style={styles.page}>
+        <Header />
+
+        <View style={styles.formSection}>
+          <ActivityIndicator />
+
+          <Text
+            style={
+              styles.screenSubtitle
+            }
+          >
+            Cargando publicación...
+          </Text>
+        </View>
+      </ScrollView>
     );
+  }
+
+  if (
+    errorMessage ||
+    !service
+  ) {
+    return (
+      <ScrollView style={styles.page}>
+        <Header />
+
+        <View style={styles.formSection}>
+          <Text
+            style={styles.screenTitle}
+          >
+            Publicación no encontrada
+          </Text>
+
+          <Text
+            style={
+              styles.screenSubtitle
+            }
+          >
+            {errorMessage}
+          </Text>
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() =>
+              router.replace(
+                "/services"
+              )
+            }
+          >
+            <Text
+              style={
+                styles.backButtonText
+              }
+            >
+              ← Volver a servicios
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  const isRequest =
+    service.serviceType ===
+    "request";
+
+  const isOwnService =
+    service.providerUserId ===
+    authUser?.id;
 
   return (
     <ScrollView
       style={styles.page}
       contentContainerStyle={{
-        paddingBottom: 50,
+        paddingBottom: 60,
       }}
     >
       <Header />
 
       <View style={styles.formSection}>
-        <Text style={styles.screenTitle}>
-          {providerName ||
-            "Proveedor"}
-        </Text>
-
         <Text
-          style={styles.screenSubtitle}
+          style={styles.screenTitle}
         >
-          Perfil público del proveedor.
+          {isRequest
+            ? "Detalle del pedido"
+            : "Detalle del servicio"}
         </Text>
 
-        <View style={styles.profileCard}>
-          <Text style={styles.cardTitle}>
-            Reputación
+        <View style={styles.serviceCard}>
+          <View
+            style={{
+              alignSelf: "flex-start",
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 999,
+              marginBottom: 18,
+
+              backgroundColor:
+                isRequest
+                  ? "#A30716"
+                  : "#0D2240",
+            }}
+          >
+            <Text
+              style={{
+                color: "#FFFFFF",
+                fontWeight: "800",
+              }}
+            >
+              {isRequest
+                ? "PEDIDO"
+                : "OFERTA"}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={
+              openProviderProfile
+            }
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 14,
+                marginBottom: 18,
+              }}
+            >
+              <Image
+                source={{
+                  uri:
+                    service.avatar ||
+                    "https://i.pravatar.cc/300",
+                }}
+                style={{
+                  width: 58,
+                  height: 58,
+                  borderRadius: 29,
+                }}
+              />
+
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={
+                    styles.servicePerson
+                  }
+                >
+                  {service.person}
+                </Text>
+
+                <Text
+                  style={
+                    styles.ratingText
+                  }
+                >
+                  ⭐ {service.rating ?? 4.8}
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          <Text
+            style={styles.serviceName}
+          >
+            {service.service}
           </Text>
 
           <Text
-            style={styles.profileLine}
+            style={styles.serviceDetail}
           >
-            Reviews recibidas:{" "}
-            {providerReviews.length}
+            Categoría: {service.category}
           </Text>
 
           <Text
-            style={styles.profileLine}
+            style={styles.serviceDetail}
           >
-            Promedio:{" "}
-            {providerReviews.length === 0
-              ? "Sin reviews"
-              : `${averageRating.toFixed(
-                  1
-                )} ⭐`}
+            Modalidad: {service.mode}
           </Text>
 
-          {!isOwnProfile ? (
-            <TouchableOpacity
+          <Text
+            style={styles.serviceCost}
+          >
+            {service.credits}{" "}
+            {service.credits === 1
+              ? "crédito / hora"
+              : "créditos / hora"}
+          </Text>
+
+          <Text
+            style={[
+              styles.cardTitle,
+              {
+                marginTop: 24,
+                marginBottom: 10,
+              },
+            ]}
+          >
+            Descripción
+          </Text>
+
+          <Text
+            style={{
+              color: "#E0E0E0",
+              fontSize: 15,
+              lineHeight: 23,
+            }}
+          >
+            {service.description ||
+              "Esta publicación todavía no tiene una descripción detallada."}
+          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.outlineActionButton,
+              {
+                marginTop: 22,
+              },
+            ]}
+            onPress={
+              openProviderProfile
+            }
+          >
+            <Text
               style={
-                styles.contactButton
+                styles.outlineActionButtonText
               }
+            >
+              Ver perfil de{" "}
+              {service.person}
+            </Text>
+          </TouchableOpacity>
+
+          {!isOwnService ? (
+            <TouchableOpacity
+              style={[
+                styles.contactButton,
+                {
+                  marginTop: 12,
+                },
+              ]}
               onPress={
-                handleContactProvider
+                handleContact
               }
               disabled={
-                isLoadingProfile ||
-                isOpeningChat ||
-                !providerUserId
+                isOpeningChat
               }
             >
               <Text
@@ -333,110 +492,37 @@ export default function ProviderProfileScreen() {
                   styles.primaryButtonText
                 }
               >
-                {isLoadingProfile
-                  ? "Cargando perfil..."
-                  : isOpeningChat
-                    ? "Abriendo chat..."
-                    : `Contactar a ${providerName}`}
+                {isOpeningChat
+                  ? "Abriendo chat..."
+                  : `Contactar a ${service.person}`}
               </Text>
             </TouchableOpacity>
           ) : (
-            <Text
+            <View
               style={[
-                styles.screenSubtitle,
+                styles.emptyStateCard,
                 {
-                  marginTop: 14,
+                  marginTop: 18,
                 },
               ]}
             >
-              Este es tu perfil público.
-            </Text>
+              <Text
+                style={
+                  styles.emptyStateText
+                }
+              >
+                Esta publicación pertenece a tu cuenta.
+              </Text>
+            </View>
           )}
         </View>
-
-        <Text style={styles.cardTitle}>
-          Servicios publicados
-        </Text>
-
-        {providerServices.length ===
-        0 ? (
-          <View
-            style={
-              styles.emptyStateCard
-            }
-          >
-            <Text
-              style={
-                styles.emptyStateTitle
-              }
-            >
-              Sin servicios
-            </Text>
-
-            <Text
-              style={
-                styles.emptyStateText
-              }
-            >
-              Este proveedor no tiene
-              servicios publicados
-              actualmente.
-            </Text>
-          </View>
-        ) : (
-          providerServices.map(
-            (service) => (
-              <ServiceCard
-                key={service.id}
-                item={service}
-              />
-            )
-          )
-        )}
-
-        <Text style={styles.cardTitle}>
-          Reviews
-        </Text>
-
-        {providerReviews.length ===
-        0 ? (
-          <View
-            style={
-              styles.emptyStateCard
-            }
-          >
-            <Text
-              style={
-                styles.emptyStateTitle
-              }
-            >
-              Sin reviews
-            </Text>
-
-            <Text
-              style={
-                styles.emptyStateText
-              }
-            >
-              Este proveedor aún no ha
-              recibido calificaciones.
-            </Text>
-          </View>
-        ) : (
-          providerReviews.map(
-            (review) => (
-              <ReviewCard
-                key={review.id}
-                item={review}
-              />
-            )
-          )
-        )}
 
         <TouchableOpacity
           style={styles.backButton}
           onPress={() =>
-            router.push("/services")
+            router.replace(
+              "/services"
+            )
           }
         >
           <Text

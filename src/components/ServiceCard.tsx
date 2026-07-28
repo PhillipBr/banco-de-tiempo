@@ -41,9 +41,8 @@ import {
 type ExtendedService = Service & {
   serviceType?: "offer" | "request";
   createdAt?: string;
-
+  description?: string;
   supabaseId?: string;
-
   providerUserId?: string;
 };
 
@@ -54,9 +53,7 @@ type ServiceCardProps = {
 export default function ServiceCard({
   item,
 }: ServiceCardProps) {
-  const {
-    user,
-  } = useAppContext();
+  const { user } = useAppContext();
 
   const {
     session,
@@ -84,20 +81,32 @@ export default function ServiceCard({
   const isRequest =
     item.serviceType === "request";
 
+  const normalizedCurrentUser =
+    String(user?.name || "")
+      .trim()
+      .toLowerCase();
+
+  const normalizedProvider =
+    String(item.person || "")
+      .trim()
+      .toLowerCase();
+
   const isOwnPublication =
     Boolean(
       isLoggedIn &&
-      (
-        item.providerUserId ===
-          authUser?.id ||
-        user?.name
-          ?.trim()
-          .toLowerCase() ===
-          item.person
-            ?.trim()
-            .toLowerCase()
-      )
+        (
+          item.providerUserId ===
+            authUser?.id ||
+          (
+            normalizedCurrentUser &&
+            normalizedCurrentUser ===
+              normalizedProvider
+          )
+        )
     );
+
+  const description =
+    String(item.description || "").trim();
 
   useEffect(() => {
     if (
@@ -220,17 +229,50 @@ export default function ServiceCard({
       params: {
         id:
           item.supabaseId ||
-          item.id.toString(),
+          String(item.id),
       },
     });
   };
 
+  const openServiceDetail = () => {
+    router.push({
+      pathname:
+        "/service-detail/[id]",
+
+      params: {
+        id:
+          item.supabaseId ||
+          String(item.id),
+      },
+    });
+  };
+
+  const openProviderProfile = () => {
+    const providerName =
+      String(item.person || "").trim();
+
+    if (!providerName) {
+      Alert.alert(
+        "Perfil no disponible",
+        "Esta publicación no contiene el nombre del proveedor."
+      );
+
+      return;
+    }
+
+    /*
+     * Usamos una URL directa para que Expo Router
+     * coloque correctamente el nombre dentro de [name].
+     */
+    router.push(
+      `/provider-profile/${encodeURIComponent(
+        providerName
+      )}`
+    );
+  };
+
   const resolveProviderUserId =
     async (): Promise<string> => {
-      /*
-       * Primero usamos providerUserId
-       * si el servicio ya lo contiene.
-       */
       if (
         item.providerUserId &&
         isValidUuid(
@@ -240,32 +282,20 @@ export default function ServiceCard({
         return item.providerUserId;
       }
 
-      /*
-       * Como respaldo, buscamos el perfil
-       * mediante nombre, correo o prefijo
-       * del correo.
-       */
       const profiles =
         await getProfiles();
-
-      const normalizedProvider =
-        String(
-          item.person || ""
-        )
-          .trim()
-          .toLowerCase();
 
       const foundProfile =
         profiles.find(
           (profile) => {
-            const normalizedName =
+            const profileName =
               String(
                 profile.name || ""
               )
                 .trim()
                 .toLowerCase();
 
-            const normalizedEmail =
+            const profileEmail =
               String(
                 profile.email || ""
               )
@@ -273,13 +303,13 @@ export default function ServiceCard({
                 .toLowerCase();
 
             const emailPrefix =
-              normalizedEmail
+              profileEmail
                 .split("@")[0];
 
             return (
-              normalizedName ===
+              profileName ===
                 normalizedProvider ||
-              normalizedEmail ===
+              profileEmail ===
                 normalizedProvider ||
               emailPrefix ===
                 normalizedProvider
@@ -297,7 +327,7 @@ export default function ServiceCard({
         )
       ) {
         throw new Error(
-          "No se encontró un UUID válido para el proveedor."
+          "No se encontró una cuenta válida asociada al proveedor."
         );
       }
 
@@ -327,6 +357,15 @@ export default function ServiceCard({
         return;
       }
 
+      if (!item.supabaseId) {
+        Alert.alert(
+          "Publicación no disponible",
+          "No se encontró el ID de esta publicación."
+        );
+
+        return;
+      }
+
       try {
         setIsOpeningChat(true);
 
@@ -348,8 +387,7 @@ export default function ServiceCard({
               providerUserId,
 
             serviceId:
-              item.supabaseId ||
-              null,
+              item.supabaseId,
 
             requestId:
               null,
@@ -405,27 +443,14 @@ export default function ServiceCard({
     };
 
   return (
-    <View
-      style={
-        styles.serviceCard
-      }
-    >
+    <View style={styles.serviceCard}>
       <View
         style={{
-          alignSelf:
-            "flex-start",
-
-          paddingHorizontal:
-            11,
-
-          paddingVertical:
-            5,
-
-          borderRadius:
-            999,
-
-          marginBottom:
-            12,
+          alignSelf: "flex-start",
+          paddingHorizontal: 11,
+          paddingVertical: 5,
+          borderRadius: 999,
+          marginBottom: 12,
 
           backgroundColor:
             isRequest
@@ -435,17 +460,10 @@ export default function ServiceCard({
       >
         <Text
           style={{
-            color:
-              "#FFFFFF",
-
-            fontSize:
-              12,
-
-            fontWeight:
-              "800",
-
-            letterSpacing:
-              0.5,
+            color: "#FFFFFF",
+            fontSize: 12,
+            fontWeight: "800",
+            letterSpacing: 0.5,
           }}
         >
           {isRequest
@@ -454,38 +472,20 @@ export default function ServiceCard({
         </Text>
       </View>
 
-      <View
-        style={
-          styles.serviceHeader
-        }
-      >
+      <View style={styles.serviceHeader}>
         <Image
           source={{
             uri:
               item.avatar ||
               "https://i.pravatar.cc/300",
           }}
-          style={
-            styles.avatar
-          }
+          style={styles.avatar}
         />
 
-        <View
-          style={{
-            flex: 1,
-          }}
-        >
+        <View style={{ flex: 1 }}>
           <TouchableOpacity
-            onPress={() =>
-              router.push({
-                pathname:
-                  "/provider-profile/[name]",
-
-                params: {
-                  name:
-                    item.person,
-                },
-              })
+            onPress={
+              openProviderProfile
             }
           >
             <Text
@@ -493,70 +493,77 @@ export default function ServiceCard({
                 styles.servicePerson
               }
             >
-              {item.person}
+              {item.person ||
+                "Proveedor"}
             </Text>
           </TouchableOpacity>
 
-          <Text
-            style={
-              styles.ratingText
-            }
-          >
+          <Text style={styles.ratingText}>
             ⭐ {item.rating ?? 4.8}
           </Text>
         </View>
       </View>
 
-      <Text
-        style={
-          styles.serviceName
-        }
-      >
+      <Text style={styles.serviceName}>
         {item.service}
       </Text>
 
-      <Text
-        style={
-          styles.serviceDetail
-        }
-      >
+      <Text style={styles.serviceDetail}>
         Categoría: {item.category}
       </Text>
 
-      <Text
-        style={
-          styles.serviceDetail
-        }
-      >
+      <Text style={styles.serviceDetail}>
         Modalidad: {item.mode}
       </Text>
 
-      <Text
-        style={
-          styles.serviceCost
-        }
-      >
+      <Text style={styles.serviceCost}>
         {item.credits}{" "}
         {item.credits === 1
           ? "crédito / hora"
           : "créditos / hora"}
       </Text>
 
-      <TouchableOpacity
-        style={
-          styles.contactButton
-        }
-        onPress={() =>
-          router.push({
-            pathname:
-              "/service-detail/[id]",
+      {description ? (
+        <View
+          style={{
+            marginTop: 14,
+            marginBottom: 4,
+          }}
+        >
+          <Text
+            style={{
+              color: "#D0D0D0",
+              fontSize: 14,
+              lineHeight: 20,
+            }}
+            numberOfLines={2}
+            ellipsizeMode="tail"
+          >
+            {description}
+          </Text>
+        </View>
+      ) : (
+        <Text
+          style={{
+            color: "#888888",
+            fontSize: 13,
+            marginTop: 14,
+            fontStyle: "italic",
+          }}
+        >
+          Sin descripción adicional.
+        </Text>
+      )}
 
-            params: {
-              id:
-                item.supabaseId ||
-                item.id.toString(),
-            },
-          })
+      <TouchableOpacity
+        style={[
+          styles.contactButton,
+          {
+            marginTop: 16,
+          },
+        ]}
+        onPress={
+          openServiceDetail
         }
       >
         <Text
@@ -564,7 +571,7 @@ export default function ServiceCard({
             styles.primaryButtonText
           }
         >
-          Ver detalle
+          Ver más
         </Text>
       </TouchableOpacity>
 
@@ -573,9 +580,7 @@ export default function ServiceCard({
           style={
             styles.confirmButton
           }
-          onPress={
-            openLogin
-          }
+          onPress={openLogin}
         >
           <Text
             style={
