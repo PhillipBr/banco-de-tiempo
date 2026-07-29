@@ -34,15 +34,21 @@ import {
   TransactionHistoryItem,
 } from "../lib/transactionApi";
 
+import {
+  getOrCreateProfileByUserId,
+  mapSupabaseProfileToAppUser,
+} from "../lib/profileApi";
+
 function formatDate(
   dateValue: string
 ): string {
-  const date = new Date(
-    `${dateValue}T12:00:00`
-  );
+  const date =
+    new Date(dateValue);
 
   if (
-    Number.isNaN(date.getTime())
+    Number.isNaN(
+      date.getTime()
+    )
   ) {
     return dateValue;
   }
@@ -55,6 +61,24 @@ function formatDate(
       day: "numeric",
     }
   ).format(date);
+}
+
+function getStatusLabel(
+  status: TransactionHistoryItem["status"]
+): string {
+  switch (status) {
+    case "completed":
+      return "Completada";
+
+    case "cancelled":
+      return "Cancelada";
+
+    case "pending":
+      return "Pendiente";
+
+    default:
+      return status;
+  }
 }
 
 export default function HistoryScreen() {
@@ -75,6 +99,13 @@ export default function HistoryScreen() {
   ] = useState<
     TransactionHistoryItem[]
   >([]);
+
+  const [
+    currentCredits,
+    setCurrentCredits,
+  ] = useState(
+    user.credits
+  );
 
   const [
     isLoading,
@@ -98,9 +129,23 @@ export default function HistoryScreen() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const transactions =
-          await getTransactionsByUserId(
+        const [
+          profile,
+          transactions,
+        ] = await Promise.all([
+          getOrCreateProfileByUserId(
+            authUser.id,
+            authUser.email
+          ),
+
+          getTransactionsByUserId(
             authUser.id
+          ),
+        ]);
+
+        const mappedProfile =
+          mapSupabaseProfileToAppUser(
+            profile
           );
 
         const mappedHistory =
@@ -112,15 +157,20 @@ export default function HistoryScreen() {
               )
           );
 
-        setHistory(mappedHistory);
+        setHistory(
+          mappedHistory
+        );
 
-        /*
-         * Mantiene sincronizado el historial
-         * local para ProfileScreen.
-         */
-        updateUser({
-          history: mappedHistory.map(
-            (item, index) => ({
+        setCurrentCredits(
+          mappedProfile.credits
+        );
+
+        const localHistory =
+          mappedHistory.map(
+            (
+              item,
+              index
+            ) => ({
               id:
                 Date.now() +
                 index,
@@ -137,7 +187,19 @@ export default function HistoryScreen() {
               date:
                 item.date,
             })
-          ),
+          );
+
+        updateUser({
+          ...mappedProfile,
+
+          offeredServices:
+            user.offeredServices,
+
+          neededServices:
+            user.neededServices,
+
+          history:
+            localHistory,
         });
       } catch (error: any) {
         console.error(
@@ -154,6 +216,7 @@ export default function HistoryScreen() {
       }
     }, [
       authUser?.id,
+      authUser?.email,
       updateUser,
     ]);
 
@@ -163,7 +226,10 @@ export default function HistoryScreen() {
         !isAuthLoading &&
         !session
       ) {
-        router.replace("/login");
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
@@ -171,7 +237,7 @@ export default function HistoryScreen() {
         session &&
         authUser?.id
       ) {
-        loadHistory();
+        void loadHistory();
       }
     }, [
       session,
@@ -181,33 +247,44 @@ export default function HistoryScreen() {
     ])
   );
 
+  const completedHistory =
+    useMemo(() => {
+      return history.filter(
+        (item) =>
+          item.status ===
+          "completed"
+      );
+    }, [history]);
+
   const earnedCredits =
     useMemo(() => {
-      return history
+      return completedHistory
         .filter(
           (item) =>
             item.type === "earned"
         )
         .reduce(
           (total, item) =>
-            total + item.credits,
+            total +
+            item.credits,
           0
         );
-    }, [history]);
+    }, [completedHistory]);
 
   const spentCredits =
     useMemo(() => {
-      return history
+      return completedHistory
         .filter(
           (item) =>
             item.type === "spent"
         )
         .reduce(
           (total, item) =>
-            total + item.credits,
+            total +
+            item.credits,
           0
         );
-    }, [history]);
+    }, [completedHistory]);
 
   if (
     isAuthLoading ||
@@ -241,11 +318,11 @@ export default function HistoryScreen() {
           </Text>
 
           <TouchableOpacity
-            style={
-              styles.primaryButton
-            }
+            style={styles.primaryButton}
             onPress={() =>
-              router.replace("/login")
+              router.replace(
+                "/login"
+              )
             }
           >
             <Text
@@ -309,14 +386,16 @@ export default function HistoryScreen() {
             </Text>
 
             <Text style={styles.statValue}>
-              {user.credits}
+              {currentCredits}
             </Text>
           </View>
         </View>
 
         <TouchableOpacity
           style={styles.contactButton}
-          onPress={loadHistory}
+          onPress={
+            loadHistory
+          }
         >
           <Text
             style={
@@ -327,7 +406,11 @@ export default function HistoryScreen() {
           </Text>
         </TouchableOpacity>
 
-        <View style={{ height: 24 }} />
+        <View
+          style={{
+            height: 24,
+          }}
+        />
 
         {errorMessage ? (
           <View
@@ -381,7 +464,8 @@ export default function HistoryScreen() {
         ) : (
           history.map((item) => {
             const isEarned =
-              item.type === "earned";
+              item.type ===
+              "earned";
 
             return (
               <View
@@ -427,9 +511,18 @@ export default function HistoryScreen() {
                     styles.profileLine
                   }
                 >
+                  Persona relacionada:{" "}
+                  {item.otherPerson}
+                </Text>
+
+                <Text
+                  style={
+                    styles.profileLine
+                  }
+                >
                   Fecha:{" "}
                   {formatDate(
-                    item.date
+                    item.createdAt
                   )}
                 </Text>
 
@@ -438,7 +531,10 @@ export default function HistoryScreen() {
                     styles.profileLine
                   }
                 >
-                  Estado: Completada
+                  Estado:{" "}
+                  {getStatusLabel(
+                    item.status
+                  )}
                 </Text>
               </View>
             );
@@ -448,7 +544,9 @@ export default function HistoryScreen() {
         <TouchableOpacity
           style={styles.backButton}
           onPress={() =>
-            router.push("/profile")
+            router.push(
+              "/profile"
+            )
           }
         >
           <Text

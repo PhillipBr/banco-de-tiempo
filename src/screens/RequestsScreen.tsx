@@ -53,6 +53,9 @@ export default function RequestsScreen() {
     isAuthLoading,
   } = useAuthContext();
 
+  const currentUserId =
+    authUser?.id ?? "";
+
   const [
     requests,
     setRequests,
@@ -77,7 +80,7 @@ export default function RequestsScreen() {
 
   const loadRequests =
     useCallback(async () => {
-      if (!authUser?.id) {
+      if (!currentUserId) {
         setRequests([]);
         setIsLoading(false);
         return;
@@ -89,7 +92,7 @@ export default function RequestsScreen() {
 
         const data =
           await getRequestsByUserId(
-            authUser.id
+            currentUserId
           );
 
         const mappedRequests =
@@ -111,7 +114,7 @@ export default function RequestsScreen() {
       } finally {
         setIsLoading(false);
       }
-    }, [authUser?.id]);
+    }, [currentUserId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -125,13 +128,13 @@ export default function RequestsScreen() {
 
       if (
         session &&
-        authUser?.id
+        currentUserId
       ) {
-        loadRequests();
+        void loadRequests();
       }
     }, [
       session,
-      authUser?.id,
+      currentUserId,
       isAuthLoading,
       loadRequests,
     ])
@@ -139,7 +142,7 @@ export default function RequestsScreen() {
 
   const filteredRequests =
     useMemo(() => {
-      if (!authUser?.id) {
+      if (!currentUserId) {
         return [];
       }
 
@@ -147,11 +150,11 @@ export default function RequestsScreen() {
         (request) => {
           const isIncoming =
             request.providerUserId ===
-            authUser.id;
+            currentUserId;
 
           const isOutgoing =
             request.requesterUserId ===
-            authUser.id;
+            currentUserId;
 
           switch (selectedFilter) {
             case "Todas":
@@ -189,27 +192,28 @@ export default function RequestsScreen() {
     }, [
       requests,
       selectedFilter,
-      authUser?.id,
+      currentUserId,
     ]);
 
   const pendingCount =
     requests.filter(
       (request) =>
-        request.status === "pending"
+        request.status ===
+        "pending"
     ).length;
 
   const incomingCount =
     requests.filter(
       (request) =>
         request.providerUserId ===
-        authUser?.id
+        currentUserId
     ).length;
 
   const outgoingCount =
     requests.filter(
       (request) =>
         request.requesterUserId ===
-        authUser?.id
+        currentUserId
     ).length;
 
   if (
@@ -231,7 +235,10 @@ export default function RequestsScreen() {
     );
   }
 
-  if (!session) {
+  if (
+    !session ||
+    !currentUserId
+  ) {
     return (
       <ScrollView style={styles.page}>
         <Header />
@@ -329,7 +336,9 @@ export default function RequestsScreen() {
 
         <TouchableOpacity
           style={styles.contactButton}
-          onPress={loadRequests}
+          onPress={() => {
+            void loadRequests();
+          }}
         >
           <Text
             style={
@@ -431,10 +440,13 @@ export default function RequestsScreen() {
           filteredRequests.map(
             (item) => (
               <RequestCard
-                key={item.supabaseId}
+                key={
+                  item.supabaseId ||
+                  item.id
+                }
                 item={item}
                 currentUserId={
-                  authUser.id
+                  currentUserId
                 }
                 onStatusChange={
                   loadRequests

@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useMemo,
   useState,
 } from "react";
 
@@ -23,12 +22,11 @@ import {
 import Header from "../components/Header";
 import ServiceCard from "../components/ServiceCard";
 import ReviewCard from "../components/ReviewCard";
-
-import { styles } from "../theme/styles";
+import TrustCard from "../components/TrustCard";
 
 import {
-  useAppContext,
-} from "../context/AppContext";
+  styles,
+} from "../theme/styles";
 
 import {
   useAuthContext,
@@ -46,9 +44,42 @@ import {
 } from "../lib/serviceApi";
 
 import {
+  getProviderReviewStats,
+  getReviewsByProviderUserId,
+  mapSupabaseReviewToAppReview,
+  AppReview,
+  ReviewStats,
+} from "../lib/reviewApi";
+
+import {
+  getUserTrustStats,
+  TrustStats,
+} from "../lib/trustApi";
+
+import {
   getOrCreateConversation,
   isValidUuid,
 } from "../lib/messageApi";
+
+function renderStars(
+  rating: number
+): string {
+  const validRating =
+    Math.max(
+      0,
+      Math.min(
+        5,
+        Math.round(rating)
+      )
+    );
+
+  return (
+    "★".repeat(validRating) +
+    "☆".repeat(
+      5 - validRating
+    )
+  );
+}
 
 export default function ProviderProfileScreen() {
   const params =
@@ -57,7 +88,9 @@ export default function ProviderProfileScreen() {
     }>();
 
   const providerNameParam =
-    Array.isArray(params.name)
+    Array.isArray(
+      params.name
+    )
       ? params.name[0] || ""
       : params.name || "";
 
@@ -65,10 +98,6 @@ export default function ProviderProfileScreen() {
     decodeURIComponent(
       providerNameParam
     ).trim();
-
-  const {
-    reviews,
-  } = useAppContext();
 
   const {
     session,
@@ -86,6 +115,25 @@ export default function ProviderProfileScreen() {
     providerServices,
     setProviderServices,
   ] = useState<AppService[]>([]);
+
+  const [
+    providerReviews,
+    setProviderReviews,
+  ] = useState<AppReview[]>([]);
+
+  const [
+    reviewStats,
+    setReviewStats,
+  ] = useState<ReviewStats | null>(
+    null
+  );
+
+  const [
+    trustStats,
+    setTrustStats,
+  ] = useState<TrustStats | null>(
+    null
+  );
 
   const [
     isLoading,
@@ -107,148 +155,175 @@ export default function ProviderProfileScreen() {
       .trim()
       .toLowerCase();
 
-  const providerReviews =
-    useMemo(() => {
-      return reviews.filter(
-        (review) =>
-          String(
-            review.providerName || ""
-          )
-            .trim()
-            .toLowerCase() ===
-          normalizedProviderName
-      );
-    }, [
-      reviews,
-      normalizedProviderName,
-    ]);
-
-  const averageRating =
-    providerReviews.length === 0
-      ? 0
-      : providerReviews.reduce(
-          (
-            total,
-            review
-          ) =>
-            total +
-            Number(
-              review.rating || 0
-            ),
-          0
-        ) /
-        providerReviews.length;
-
   const loadProvider =
-    useCallback(async () => {
-      if (!providerName) {
-        setErrorMessage(
-          "No se recibió el nombre del proveedor."
-        );
-
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        setErrorMessage("");
-
-        const [
-          profiles,
-          servicesData,
-        ] = await Promise.all([
-          getProfiles(),
-          getServices(),
-        ]);
-
-        const foundProfile =
-          profiles.find(
-            (profile) => {
-              const profileName =
-                String(
-                  profile.name || ""
-                )
-                  .trim()
-                  .toLowerCase();
-
-              const email =
-                String(
-                  profile.email || ""
-                )
-                  .trim()
-                  .toLowerCase();
-
-              const emailPrefix =
-                email.split("@")[0];
-
-              return (
-                profileName ===
-                  normalizedProviderName ||
-                email ===
-                  normalizedProviderName ||
-                emailPrefix ===
-                  normalizedProviderName
-              );
-            }
-          ) || null;
-
-        if (!foundProfile) {
-          setProviderProfile(null);
-          setProviderServices([]);
-
+    useCallback(
+      async () => {
+        if (!providerName) {
           setErrorMessage(
-            "No se encontró el perfil asociado a este proveedor."
+            "No se recibió el nombre del proveedor."
           );
 
+          setIsLoading(false);
           return;
         }
 
-        setProviderProfile(
-          foundProfile
-        );
+        try {
+          setIsLoading(true);
+          setErrorMessage("");
 
-        const mappedServices =
-          servicesData.map(
-            mapSupabaseServiceToAppService
+          const [
+            profiles,
+            servicesData,
+          ] = await Promise.all([
+            getProfiles(),
+            getServices(),
+          ]);
+
+          const foundProfile =
+            profiles.find(
+              (profile) => {
+                const profileName =
+                  String(
+                    profile.name || ""
+                  )
+                    .trim()
+                    .toLowerCase();
+
+                const email =
+                  String(
+                    profile.email || ""
+                  )
+                    .trim()
+                    .toLowerCase();
+
+                const emailPrefix =
+                  email.split("@")[0];
+
+                return (
+                  profileName ===
+                    normalizedProviderName ||
+                  email ===
+                    normalizedProviderName ||
+                  emailPrefix ===
+                    normalizedProviderName
+                );
+              }
+            ) ?? null;
+
+          if (
+            !foundProfile ||
+            !foundProfile.user_id
+          ) {
+            setProviderProfile(
+              null
+            );
+
+            setProviderServices(
+              []
+            );
+
+            setProviderReviews(
+              []
+            );
+
+            setReviewStats(
+              null
+            );
+
+            setTrustStats(
+              null
+            );
+
+            setErrorMessage(
+              "No se encontró el perfil asociado a este proveedor."
+            );
+
+            return;
+          }
+
+          if (
+            !isValidUuid(
+              foundProfile.user_id
+            )
+          ) {
+            throw new Error(
+              "El perfil del proveedor no contiene un UUID válido."
+            );
+          }
+
+          setProviderProfile(
+            foundProfile
           );
 
-        const filteredServices =
-          mappedServices.filter(
-            (service) =>
-              (
-                foundProfile.user_id &&
+          const [
+            reviewsData,
+            reviewStatsData,
+            trustData,
+          ] = await Promise.all([
+            getReviewsByProviderUserId(
+              foundProfile.user_id
+            ),
+
+            getProviderReviewStats(
+              foundProfile.user_id
+            ),
+
+            getUserTrustStats(
+              foundProfile.user_id
+            ),
+          ]);
+
+          const mappedServices =
+            servicesData.map(
+              mapSupabaseServiceToAppService
+            );
+
+          const filteredServices =
+            mappedServices.filter(
+              (service) =>
                 service.providerUserId ===
-                  foundProfile.user_id
-              ) ||
-              String(
-                service.person || ""
-              )
-                .trim()
-                .toLowerCase() ===
-                normalizedProviderName
+                foundProfile.user_id
+            );
+
+          const mappedReviews =
+            reviewsData.map(
+              mapSupabaseReviewToAppReview
+            );
+
+          setProviderServices(
+            filteredServices
           );
 
-        setProviderServices(
-          filteredServices
-        );
-      } catch (error: any) {
-        console.error(
-          "Error cargando proveedor:",
-          error
-        );
+          setProviderReviews(
+            mappedReviews
+          );
 
-        setErrorMessage(
-          error?.message ||
-            "No se pudo cargar el perfil del proveedor."
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    }, [
-      providerName,
-      normalizedProviderName,
-    ]);
+          setReviewStats(
+            reviewStatsData
+          );
+
+          setTrustStats(
+            trustData
+          );
+        } catch (error: any) {
+          console.error(
+            "Error cargando proveedor:",
+            error
+          );
+
+          setErrorMessage(
+            error?.message ||
+              "No se pudo cargar el perfil del proveedor."
+          );
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      [
+        providerName,
+        normalizedProviderName,
+      ]
+    );
 
   useFocusEffect(
     useCallback(() => {
@@ -262,12 +337,15 @@ export default function ProviderProfileScreen() {
         !session ||
         !authUser?.id
       ) {
-        router.push("/login");
+        router.push(
+          "/login"
+        );
+
         return;
       }
 
       const providerUserId =
-        providerProfile?.user_id ||
+        providerProfile?.user_id ??
         "";
 
       if (
@@ -297,7 +375,9 @@ export default function ProviderProfileScreen() {
       }
 
       try {
-        setIsOpeningChat(true);
+        setIsOpeningChat(
+          true
+        );
 
         const conversation =
           await getOrCreateConversation({
@@ -347,16 +427,45 @@ export default function ProviderProfileScreen() {
             "Ocurrió un error creando la conversación."
         );
       } finally {
-        setIsOpeningChat(false);
+        setIsOpeningChat(
+          false
+        );
       }
+    };
+
+  const handleOpenAllReviews =
+    () => {
+      if (
+        !providerProfile?.user_id
+      ) {
+        return;
+      }
+
+      router.push({
+        pathname:
+          "/reviews/[userId]",
+
+        params: {
+          userId:
+            providerProfile.user_id,
+
+          name:
+            providerProfile.name ||
+            providerName,
+        },
+      });
     };
 
   if (isLoading) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView
+        style={styles.page}
+      >
         <Header />
 
-        <View style={styles.formSection}>
+        <View
+          style={styles.formSection}
+        >
           <ActivityIndicator />
 
           <Text
@@ -376,12 +485,18 @@ export default function ProviderProfileScreen() {
     !providerProfile
   ) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView
+        style={styles.page}
+      >
         <Header />
 
-        <View style={styles.formSection}>
+        <View
+          style={styles.formSection}
+        >
           <Text
-            style={styles.screenTitle}
+            style={
+              styles.screenTitle
+            }
           >
             Proveedor
           </Text>
@@ -433,6 +548,12 @@ export default function ProviderProfileScreen() {
     providerProfile.user_id ===
     authUser?.id;
 
+  const latestReviews =
+    providerReviews.slice(
+      0,
+      3
+    );
+
   return (
     <ScrollView
       style={styles.page}
@@ -442,11 +563,16 @@ export default function ProviderProfileScreen() {
     >
       <Header />
 
-      <View style={styles.formSection}>
+      <View
+        style={styles.formSection}
+      >
         <View
           style={{
-            alignItems: "center",
-            marginBottom: 24,
+            alignItems:
+              "center",
+
+            marginBottom:
+              24,
           }}
         >
           <Image
@@ -456,17 +582,22 @@ export default function ProviderProfileScreen() {
                 "https://i.pravatar.cc/300",
             }}
             style={{
-              width: 100,
-              height: 100,
-              borderRadius: 50,
-              marginBottom: 14,
+              width:
+                100,
+
+              height:
+                100,
+
+              borderRadius:
+                50,
+
+              marginBottom:
+                14,
             }}
           />
 
           <Text
-            style={
-              styles.screenTitle
-            }
+            style={styles.screenTitle}
           >
             {providerProfile.name}
           </Text>
@@ -480,6 +611,96 @@ export default function ProviderProfileScreen() {
           </Text>
         </View>
 
+        {reviewStats ? (
+          <TouchableOpacity
+            style={
+              styles.profileCard
+            }
+            onPress={
+              handleOpenAllReviews
+            }
+            activeOpacity={0.8}
+          >
+            <Text
+              style={styles.cardTitle}
+            >
+              Reputación
+            </Text>
+
+            <Text
+              style={{
+                color:
+                  "#F5C451",
+
+                fontSize:
+                  24,
+
+                marginTop:
+                  8,
+              }}
+            >
+              {renderStars(
+                reviewStats.averageRating
+              )}
+            </Text>
+
+            <Text
+              style={{
+                color:
+                  "#FFFFFF",
+
+                fontSize:
+                  22,
+
+                fontWeight:
+                  "700",
+
+                marginTop:
+                  8,
+              }}
+            >
+              {reviewStats.averageRating.toFixed(
+                1
+              )}{" "}
+              de 5
+            </Text>
+
+            <Text
+              style={[
+                styles.screenSubtitle,
+                {
+                  marginTop:
+                    6,
+                },
+              ]}
+            >
+              {reviewStats.reviewsCount}{" "}
+              {reviewStats.reviewsCount ===
+              1
+                ? "reseña"
+                : "reseñas"}
+            </Text>
+
+            <Text
+              style={{
+                color:
+                  "#9FC5FF",
+
+                fontSize:
+                  14,
+
+                fontWeight:
+                  "600",
+
+                marginTop:
+                  14,
+              }}
+            >
+              Ver todas las reseñas →
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         <View
           style={styles.profileCard}
         >
@@ -492,10 +713,17 @@ export default function ProviderProfileScreen() {
           {providerProfile.bio ? (
             <Text
               style={{
-                color: "#E0E0E0",
-                fontSize: 15,
-                lineHeight: 22,
-                marginBottom: 16,
+                color:
+                  "#E0E0E0",
+
+                fontSize:
+                  15,
+
+                lineHeight:
+                  22,
+
+                marginBottom:
+                  16,
               }}
             >
               {providerProfile.bio}
@@ -505,8 +733,11 @@ export default function ProviderProfileScreen() {
               style={[
                 styles.profileLine,
                 {
-                  color: "#888888",
-                  fontStyle: "italic",
+                  color:
+                    "#888888",
+
+                  fontStyle:
+                    "italic",
                 },
               ]}
             >
@@ -534,7 +765,8 @@ export default function ProviderProfileScreen() {
             style={[
               styles.cardTitle,
               {
-                marginTop: 20,
+                marginTop:
+                  20,
               },
             ]}
           >
@@ -546,10 +778,17 @@ export default function ProviderProfileScreen() {
             0 ? (
             <View
               style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: 8,
-                marginTop: 8,
+                flexDirection:
+                  "row",
+
+                flexWrap:
+                  "wrap",
+
+                gap:
+                  8,
+
+                marginTop:
+                  8,
               }}
             >
               {providerProfile.skills.map(
@@ -559,16 +798,27 @@ export default function ProviderProfileScreen() {
                     style={{
                       backgroundColor:
                         "#0D2240",
-                      borderRadius: 999,
-                      paddingHorizontal: 12,
-                      paddingVertical: 7,
+
+                      borderRadius:
+                        999,
+
+                      paddingHorizontal:
+                        12,
+
+                      paddingVertical:
+                        7,
                     }}
                   >
                     <Text
                       style={{
-                        color: "#FFFFFF",
-                        fontSize: 13,
-                        fontWeight: "600",
+                        color:
+                          "#FFFFFF",
+
+                        fontSize:
+                          13,
+
+                        fontWeight:
+                          "600",
                       }}
                     >
                       {skill}
@@ -579,14 +829,19 @@ export default function ProviderProfileScreen() {
             </View>
           ) : (
             <Text
-              style={
-                styles.profileLine
-              }
+              style={styles.profileLine}
             >
               Sin habilidades publicadas.
             </Text>
           )}
         </View>
+
+        {trustStats ? (
+          <TrustCard
+            stats={trustStats}
+            title="Confianza del proveedor"
+          />
+        ) : null}
 
         <View
           style={styles.profileCard}
@@ -594,26 +849,7 @@ export default function ProviderProfileScreen() {
           <Text
             style={styles.cardTitle}
           >
-            Reputación
-          </Text>
-
-          <Text
-            style={styles.profileLine}
-          >
-            Reviews recibidas:{" "}
-            {providerReviews.length}
-          </Text>
-
-          <Text
-            style={styles.profileLine}
-          >
-            Promedio:{" "}
-            {providerReviews.length ===
-            0
-              ? "Sin reviews"
-              : `${averageRating.toFixed(
-                  1
-                )} ⭐`}
+            Contacto
           </Text>
 
           {!isOwnProfile ? (
@@ -621,7 +857,8 @@ export default function ProviderProfileScreen() {
               style={[
                 styles.contactButton,
                 {
-                  marginTop: 18,
+                  marginTop:
+                    12,
                 },
               ]}
               onPress={
@@ -643,12 +880,9 @@ export default function ProviderProfileScreen() {
             </TouchableOpacity>
           ) : (
             <Text
-              style={[
-                styles.screenSubtitle,
-                {
-                  marginTop: 16,
-                },
-              ]}
+              style={
+                styles.screenSubtitle
+              }
             >
               Este es tu perfil público.
             </Text>
@@ -698,18 +932,56 @@ export default function ProviderProfileScreen() {
           )
         )}
 
-        <Text
-          style={[
-            styles.cardTitle,
-            {
-              marginTop: 26,
-            },
-          ]}
-        >
-          Reviews
-        </Text>
+        <View
+          style={{
+            flexDirection:
+              "row",
 
-        {providerReviews.length ===
+            justifyContent:
+              "space-between",
+
+            alignItems:
+              "center",
+
+            marginTop:
+              26,
+
+            marginBottom:
+              10,
+          }}
+        >
+          <Text
+            style={styles.cardTitle}
+          >
+            Últimas reseñas
+          </Text>
+
+          {providerReviews.length >
+          0 ? (
+            <TouchableOpacity
+              onPress={
+                handleOpenAllReviews
+              }
+            >
+              <Text
+                style={{
+                  color:
+                    "#9FC5FF",
+
+                  fontSize:
+                    14,
+
+                  fontWeight:
+                    "600",
+                }}
+              >
+                Ver todas
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {latestReviews.length ===
         0 ? (
           <View
             style={
@@ -721,7 +993,7 @@ export default function ProviderProfileScreen() {
                 styles.emptyStateTitle
               }
             >
-              Sin reviews
+              Sin reseñas
             </Text>
 
             <Text
@@ -733,15 +1005,40 @@ export default function ProviderProfileScreen() {
             </Text>
           </View>
         ) : (
-          providerReviews.map(
+          latestReviews.map(
             (review) => (
               <ReviewCard
-                key={review.id}
+                key={
+                  review.supabaseId ||
+                  review.id
+                }
                 item={review}
               />
             )
           )
         )}
+
+        {providerReviews.length >
+        3 ? (
+          <TouchableOpacity
+            style={
+              styles.contactButton
+            }
+            onPress={
+              handleOpenAllReviews
+            }
+          >
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
+              Ver las{" "}
+              {providerReviews.length}{" "}
+              reseñas
+            </Text>
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           style={styles.backButton}

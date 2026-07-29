@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
 import {
   Alert,
   ScrollView,
@@ -7,95 +12,227 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+
+import {
+  router,
+  useLocalSearchParams,
+} from "expo-router";
 
 import Header from "../components/Header";
+
 import { styles } from "../theme/styles";
-import { categories } from "../data/categories";
+
+import {
+  categories,
+} from "../data/categories";
+
 import {
   getServices,
   mapSupabaseServiceToAppService,
-  updateServiceById,
+  updateService,
 } from "../lib/serviceApi";
 
+import {
+  Service,
+} from "../context/AppContext";
+
 export default function EditServiceScreen() {
-  const { id } = useLocalSearchParams();
+  const params =
+    useLocalSearchParams<{
+      id?: string | string[];
+    }>();
 
-  const serviceId = String(id);
+  const serviceId =
+    Array.isArray(params.id)
+      ? params.id[0]
+      : params.id ?? "";
 
-  const [selectedService, setSelectedService] = useState<any>(null);
-  const [service, setService] = useState("");
-  const [category, setCategory] = useState("Educación");
-  const [mode, setMode] = useState("Remoto");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [
+    selectedService,
+    setSelectedService,
+  ] = useState<Service | null>(
+    null
+  );
+
+  const [
+    service,
+    setService,
+  ] = useState("");
+
+  const [
+    category,
+    setCategory,
+  ] = useState("Educación");
+
+  const [
+    mode,
+    setMode,
+  ] = useState("Remoto");
+
+  const [
+    isLoading,
+    setIsLoading,
+  ] = useState(true);
+
+  const [
+    isSaving,
+    setIsSaving,
+  ] = useState(false);
+
+  const loadSelectedService =
+    useCallback(async () => {
+      if (!serviceId) {
+        setSelectedService(null);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+
+        const data =
+          await getServices();
+
+        const mappedServices =
+          data.map(
+            mapSupabaseServiceToAppService
+          );
+
+        const foundService =
+          mappedServices.find(
+            (item) =>
+              item.supabaseId ===
+                serviceId ||
+              String(item.id) ===
+                serviceId
+          ) ?? null;
+
+        setSelectedService(
+          foundService
+        );
+
+        if (foundService) {
+          setService(
+            foundService.service
+          );
+
+          setCategory(
+            foundService.category
+          );
+
+          setMode(
+            foundService.mode
+          );
+        }
+      } catch (error: any) {
+        console.error(
+          "Error cargando servicio:",
+          error
+        );
+
+        Alert.alert(
+          "Error",
+          error?.message ||
+            "No se pudo cargar el servicio."
+        );
+
+        setSelectedService(null);
+      } finally {
+        setIsLoading(false);
+      }
+    }, [serviceId]);
 
   useEffect(() => {
-    loadSelectedService();
-  }, []);
+    void loadSelectedService();
+  }, [loadSelectedService]);
 
-  const loadSelectedService = async () => {
-    try {
-      setIsLoading(true);
+  const handleUpdateService =
+    async () => {
+      if (
+        !selectedService?.supabaseId
+      ) {
+        Alert.alert(
+          "Error",
+          "El servicio no tiene un ID válido de Supabase."
+        );
 
-      const data = await getServices();
-      const mappedServices = data.map(mapSupabaseServiceToAppService);
-
-      const foundService = mappedServices.find(
-        (item) => item.supabaseId === serviceId
-      );
-
-      if (foundService) {
-        setSelectedService(foundService);
-        setService(foundService.service);
-        setCategory(foundService.category);
-        setMode(foundService.mode);
+        return;
       }
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "No se pudo cargar el servicio.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const handleUpdateService = async () => {
-    if (!selectedService?.supabaseId) return;
+      const normalizedService =
+        service.trim();
 
-    if (!service || !category || !mode) {
-      Alert.alert(
-        "Campos incompletos",
-        "Completa servicio, categoría y modalidad."
-      );
-      return;
-    }
+      if (
+        !normalizedService ||
+        !category ||
+        !mode
+      ) {
+        Alert.alert(
+          "Campos incompletos",
+          "Completa servicio, categoría y modalidad."
+        );
 
-    try {
-      setIsSaving(true);
+        return;
+      }
 
-      await updateServiceById(selectedService.supabaseId, {
-        title: service,
-        category,
-        mode,
-        credits: selectedService.credits || 1,
-      });
+      try {
+        setIsSaving(true);
 
-      Alert.alert("Servicio actualizado", "El servicio fue actualizado en Supabase.");
+        await updateService(
+          selectedService.supabaseId,
+          {
+            title:
+              normalizedService,
 
-      router.push("/my-services");
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "No se pudo actualizar el servicio.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+            category,
+
+            mode,
+
+            credits:
+              selectedService.credits ||
+              1,
+          }
+        );
+
+        Alert.alert(
+          "Servicio actualizado",
+          "El servicio fue actualizado en Supabase."
+        );
+
+        router.replace(
+          "/my-services"
+        );
+      } catch (error: any) {
+        console.error(
+          "Error actualizando servicio:",
+          error
+        );
+
+        Alert.alert(
+          "Error",
+          error?.message ||
+            "No se pudo actualizar el servicio."
+        );
+      } finally {
+        setIsSaving(false);
+      }
+    };
 
   if (isLoading) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView
+        style={styles.page}
+      >
         <Header />
 
-        <View style={styles.formSection}>
-          <Text style={styles.screenTitle}>Cargando servicio...</Text>
+        <View
+          style={styles.formSection}
+        >
+          <Text
+            style={styles.screenTitle}
+          >
+            Cargando servicio...
+          </Text>
         </View>
       </ScrollView>
     );
@@ -103,17 +240,44 @@ export default function EditServiceScreen() {
 
   if (!selectedService) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView
+        style={styles.page}
+      >
         <Header />
 
-        <View style={styles.formSection}>
-          <Text style={styles.screenTitle}>Servicio no encontrado</Text>
+        <View
+          style={styles.formSection}
+        >
+          <Text
+            style={styles.screenTitle}
+          >
+            Servicio no encontrado
+          </Text>
+
+          <Text
+            style={
+              styles.screenSubtitle
+            }
+          >
+            No se encontró una publicación
+            asociada a este identificador.
+          </Text>
 
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.push("/my-services")}
+            onPress={() =>
+              router.replace(
+                "/my-services"
+              )
+            }
           >
-            <Text style={styles.backButtonText}>← Volver a mis servicios</Text>
+            <Text
+              style={
+                styles.backButtonText
+              }
+            >
+              ← Volver a mis servicios
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -121,14 +285,34 @@ export default function EditServiceScreen() {
   }
 
   return (
-    <ScrollView style={styles.page}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{
+        paddingBottom: 50,
+      }}
+    >
       <Header />
 
-      <View style={styles.formSection}>
-        <Text style={styles.screenTitle}>Editar Servicio</Text>
+      <View
+        style={styles.formSection}
+      >
+        <Text
+          style={styles.screenTitle}
+        >
+          Editar servicio
+        </Text>
 
-        <Text style={styles.screenSubtitle}>
-          Actualiza tu servicio real en Supabase.
+        <Text
+          style={styles.screenSubtitle}
+        >
+          Actualiza tu servicio en
+          Supabase.
+        </Text>
+
+        <Text
+          style={styles.cardTitle}
+        >
+          Nombre del servicio
         </Text>
 
         <TextInput
@@ -137,26 +321,41 @@ export default function EditServiceScreen() {
           value={service}
           onChangeText={setService}
           style={styles.input}
+          editable={!isSaving}
         />
 
-        <Text style={styles.cardTitle}>Categoría</Text>
+        <Text
+          style={styles.cardTitle}
+        >
+          Categoría
+        </Text>
 
         <View style={styles.filterRow}>
           {categories
-            .filter((item) => item !== "Todas")
+            .filter(
+              (item) =>
+                item !== "Todas"
+            )
             .map((item) => (
               <TouchableOpacity
                 key={item}
                 style={[
                   styles.filterButton,
-                  category === item && styles.filterButtonActive,
+
+                  category === item &&
+                    styles.filterButtonActive,
                 ]}
-                onPress={() => setCategory(item)}
+                onPress={() =>
+                  setCategory(item)
+                }
+                disabled={isSaving}
               >
                 <Text
                   style={[
                     styles.filterButtonText,
-                    category === item && styles.filterButtonTextActive,
+
+                    category === item &&
+                      styles.filterButtonTextActive,
                   ]}
                 >
                   {item}
@@ -165,22 +364,36 @@ export default function EditServiceScreen() {
             ))}
         </View>
 
-        <Text style={styles.cardTitle}>Modalidad</Text>
+        <Text
+          style={styles.cardTitle}
+        >
+          Modalidad
+        </Text>
 
         <View style={styles.filterRow}>
-          {["Remoto", "Presencial"].map((item) => (
+          {[
+            "Remoto",
+            "Presencial",
+          ].map((item) => (
             <TouchableOpacity
               key={item}
               style={[
                 styles.filterButton,
-                mode === item && styles.filterButtonActive,
+
+                mode === item &&
+                  styles.filterButtonActive,
               ]}
-              onPress={() => setMode(item)}
+              onPress={() =>
+                setMode(item)
+              }
+              disabled={isSaving}
             >
               <Text
                 style={[
                   styles.filterButtonText,
-                  mode === item && styles.filterButtonTextActive,
+
+                  mode === item &&
+                    styles.filterButtonTextActive,
                 ]}
               >
                 {item}
@@ -190,20 +403,44 @@ export default function EditServiceScreen() {
         </View>
 
         <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleUpdateService}
+          style={[
+            styles.primaryButton,
+            isSaving && {
+              opacity: 0.6,
+            },
+          ]}
+          onPress={
+            handleUpdateService
+          }
           disabled={isSaving}
         >
-          <Text style={styles.primaryButtonText}>
-            {isSaving ? "Guardando..." : "Guardar cambios"}
+          <Text
+            style={
+              styles.primaryButtonText
+            }
+          >
+            {isSaving
+              ? "Guardando..."
+              : "Guardar cambios"}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push("/my-services")}
+          onPress={() =>
+            router.replace(
+              "/my-services"
+            )
+          }
+          disabled={isSaving}
         >
-          <Text style={styles.backButtonText}>Cancelar</Text>
+          <Text
+            style={
+              styles.backButtonText
+            }
+          >
+            Cancelar
+          </Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

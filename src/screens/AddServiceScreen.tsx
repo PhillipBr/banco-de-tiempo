@@ -1,4 +1,5 @@
 import { useState } from "react";
+
 import {
   Alert,
   ScrollView,
@@ -7,11 +8,16 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import { router } from "expo-router";
 
 import Header from "../components/Header";
+
 import { styles } from "../theme/styles";
+
 import { useAppContext } from "../context/AppContext";
+import { useAuthContext } from "../context/AuthContext";
+
 import { categories } from "../data/categories";
 
 import {
@@ -22,29 +28,64 @@ import {
 export default function AddServiceScreen() {
   const { user } = useAppContext();
 
-  const [serviceType, setServiceType] =
-    useState<ServiceType>("offer");
+  const {
+    session,
+    authUser,
+    isAuthLoading,
+  } = useAuthContext();
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [
+    serviceType,
+    setServiceType,
+  ] = useState<ServiceType>("offer");
 
-  const [category, setCategory] =
-    useState("Educación");
+  const [
+    title,
+    setTitle,
+  ] = useState("");
 
-  const [mode, setMode] =
-    useState("Remoto");
+  const [
+    description,
+    setDescription,
+  ] = useState("");
 
-  const [isSaving, setIsSaving] =
-    useState(false);
+  const [
+    category,
+    setCategory,
+  ] = useState("Educación");
+
+  const [
+    mode,
+    setMode,
+  ] = useState("Remoto");
+
+  const [
+    isSaving,
+    setIsSaving,
+  ] = useState(false);
 
   const isRequest =
     serviceType === "request";
 
   const handleAddService = async () => {
-    const normalizedTitle = title.trim();
+    const normalizedTitle =
+      title.trim();
 
     const normalizedDescription =
       description.trim();
+
+    if (
+      !session ||
+      !authUser?.id
+    ) {
+      Alert.alert(
+        "Sesión requerida",
+        "Debes iniciar sesión para publicar."
+      );
+
+      router.push("/login");
+      return;
+    }
 
     if (!normalizedTitle) {
       Alert.alert(
@@ -99,23 +140,39 @@ export default function AddServiceScreen() {
       setIsSaving(true);
 
       await createService({
-        provider_name: user.name.trim(),
-        title: normalizedTitle,
-        description: normalizedDescription,
+        provider_name:
+          user.name.trim(),
+
+        provider_user_id:
+          authUser.id,
+
+        title:
+          normalizedTitle,
+
+        description:
+          normalizedDescription,
+
         category,
+
         mode,
+
         credits: 1,
+
         avatar:
           user.avatar ||
           "https://i.pravatar.cc/300?img=12",
+
         rating: 4.8,
-        service_type: serviceType,
+
+        service_type:
+          serviceType,
       });
 
       Alert.alert(
         isRequest
           ? "Pedido publicado"
           : "Oferta publicada",
+
         isRequest
           ? "Tu pedido de ayuda fue publicado correctamente."
           : "Tu oferta fue publicada correctamente."
@@ -138,8 +195,27 @@ export default function AddServiceScreen() {
     }
   };
 
+  if (isAuthLoading) {
+    return (
+      <View style={styles.page}>
+        <Header />
+
+        <View style={styles.formSection}>
+          <Text style={styles.screenTitle}>
+            Cargando...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.page}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{
+        paddingBottom: 50,
+      }}
+    >
       <Header />
 
       <View style={styles.formSection}>
@@ -159,6 +235,7 @@ export default function AddServiceScreen() {
           <TouchableOpacity
             style={[
               styles.filterButton,
+
               serviceType === "offer" &&
                 styles.filterButtonActive,
             ]}
@@ -170,6 +247,7 @@ export default function AddServiceScreen() {
             <Text
               style={[
                 styles.filterButtonText,
+
                 serviceType === "offer" &&
                   styles.filterButtonTextActive,
               ]}
@@ -181,6 +259,7 @@ export default function AddServiceScreen() {
           <TouchableOpacity
             style={[
               styles.filterButton,
+
               serviceType === "request" &&
                 styles.filterButtonActive,
             ]}
@@ -192,6 +271,7 @@ export default function AddServiceScreen() {
             <Text
               style={[
                 styles.filterButtonText,
+
                 serviceType === "request" &&
                   styles.filterButtonTextActive,
               ]}
@@ -275,13 +355,15 @@ export default function AddServiceScreen() {
         <View style={styles.filterRow}>
           {categories
             .filter(
-              (item) => item !== "Todas"
+              (item) =>
+                item !== "Todas"
             )
             .map((item) => (
               <TouchableOpacity
                 key={item}
                 style={[
                   styles.filterButton,
+
                   category === item &&
                     styles.filterButtonActive,
                 ]}
@@ -293,6 +375,7 @@ export default function AddServiceScreen() {
                 <Text
                   style={[
                     styles.filterButtonText,
+
                     category === item &&
                       styles.filterButtonTextActive,
                   ]}
@@ -308,32 +391,35 @@ export default function AddServiceScreen() {
         </Text>
 
         <View style={styles.filterRow}>
-          {["Remoto", "Presencial"].map(
-            (item) => (
-              <TouchableOpacity
-                key={item}
+          {[
+            "Remoto",
+            "Presencial",
+          ].map((item) => (
+            <TouchableOpacity
+              key={item}
+              style={[
+                styles.filterButton,
+
+                mode === item &&
+                  styles.filterButtonActive,
+              ]}
+              onPress={() =>
+                setMode(item)
+              }
+              disabled={isSaving}
+            >
+              <Text
                 style={[
-                  styles.filterButton,
+                  styles.filterButtonText,
+
                   mode === item &&
-                    styles.filterButtonActive,
+                    styles.filterButtonTextActive,
                 ]}
-                onPress={() =>
-                  setMode(item)
-                }
-                disabled={isSaving}
               >
-                <Text
-                  style={[
-                    styles.filterButtonText,
-                    mode === item &&
-                      styles.filterButtonTextActive,
-                  ]}
-                >
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            )
-          )}
+                {item}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <View style={styles.emptyStateCard}>

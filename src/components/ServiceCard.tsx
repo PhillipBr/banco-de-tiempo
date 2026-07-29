@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 
 import {
   Alert,
@@ -8,16 +11,22 @@ import {
   View,
 } from "react-native";
 
-import { router } from "expo-router";
+import {
+  router,
+} from "expo-router";
 
-import { styles } from "../theme/styles";
+import {
+  styles,
+} from "../theme/styles";
 
 import {
   Service,
   useAppContext,
 } from "../context/AppContext";
 
-import { useAuthContext } from "../context/AuthContext";
+import {
+  useAuthContext,
+} from "../context/AuthContext";
 
 import {
   addFavoriteInSupabase,
@@ -38,22 +47,55 @@ import {
   isValidUuid,
 } from "../lib/messageApi";
 
-type ExtendedService = Service & {
-  serviceType?: "offer" | "request";
-  createdAt?: string;
-  description?: string;
-  supabaseId?: string;
-  providerUserId?: string;
-};
+import {
+  formatDistance,
+} from "../lib/locationApi";
+
+type ExtendedService =
+  Service & {
+    serviceType?:
+      | "offer"
+      | "request";
+
+    createdAt?: string;
+    description?: string;
+
+    supabaseId?: string;
+
+    providerUserId?: string;
+
+    city?: string;
+    community?: string;
+
+    latitude?:
+      | number
+      | null;
+
+    longitude?:
+      | number
+      | null;
+
+    distanceKm?:
+      | number
+      | null;
+  };
 
 type ServiceCardProps = {
   item: ExtendedService;
+
+  isSelected?: boolean;
+
+  onPressCard?: () => void;
 };
 
 export default function ServiceCard({
   item,
+  isSelected = false,
+  onPressCard,
 }: ServiceCardProps) {
-  const { user } = useAppContext();
+  const {
+    user,
+  } = useAppContext();
 
   const {
     session,
@@ -79,15 +121,20 @@ export default function ServiceCard({
     Boolean(session);
 
   const isRequest =
-    item.serviceType === "request";
+    item.serviceType ===
+    "request";
 
   const normalizedCurrentUser =
-    String(user?.name || "")
+    String(
+      user?.name || ""
+    )
       .trim()
       .toLowerCase();
 
   const normalizedProvider =
-    String(item.person || "")
+    String(
+      item.person || ""
+    )
       .trim()
       .toLowerCase();
 
@@ -106,7 +153,31 @@ export default function ServiceCard({
     );
 
   const description =
-    String(item.description || "").trim();
+    String(
+      item.description || ""
+    ).trim();
+
+  const locationText = [
+    item.community,
+    item.city,
+  ]
+    .map((value) =>
+      String(
+        value || ""
+      ).trim()
+    )
+    .filter(Boolean)
+    .filter(
+      (
+        value,
+        index,
+        array
+      ) =>
+        array.indexOf(
+          value
+        ) === index
+    )
+    .join(" · ");
 
   useEffect(() => {
     if (
@@ -140,7 +211,9 @@ export default function ServiceCard({
             user.name
           );
 
-        setIsFavorite(result);
+        setIsFavorite(
+          result
+        );
       } catch (error) {
         console.log(
           "Error revisando favorito:",
@@ -152,7 +225,10 @@ export default function ServiceCard({
   const handleToggleFavorite =
     async () => {
       if (!isLoggedIn) {
-        router.push("/login");
+        router.push(
+          "/login"
+        );
+
         return;
       }
 
@@ -175,7 +251,9 @@ export default function ServiceCard({
       }
 
       try {
-        setIsSavingFavorite(true);
+        setIsSavingFavorite(
+          true
+        );
 
         if (isFavorite) {
           await removeFavoriteInSupabase(
@@ -183,7 +261,9 @@ export default function ServiceCard({
             user.name
           );
 
-          setIsFavorite(false);
+          setIsFavorite(
+            false
+          );
         } else {
           await addFavoriteInSupabase({
             service_id:
@@ -204,7 +284,9 @@ export default function ServiceCard({
               "service",
           });
 
-          setIsFavorite(true);
+          setIsFavorite(
+            true
+          );
         }
       } catch (error: any) {
         Alert.alert(
@@ -213,63 +295,72 @@ export default function ServiceCard({
             "No se pudo actualizar el favorito."
         );
       } finally {
-        setIsSavingFavorite(false);
+        setIsSavingFavorite(
+          false
+        );
       }
     };
 
   const openLogin = () => {
-    router.push("/login");
-  };
-
-  const openInteraction = () => {
-    router.push({
-      pathname:
-        "/confirm-service/[id]",
-
-      params: {
-        id:
-          item.supabaseId ||
-          String(item.id),
-      },
-    });
-  };
-
-  const openServiceDetail = () => {
-    router.push({
-      pathname:
-        "/service-detail/[id]",
-
-      params: {
-        id:
-          item.supabaseId ||
-          String(item.id),
-      },
-    });
-  };
-
-  const openProviderProfile = () => {
-    const providerName =
-      String(item.person || "").trim();
-
-    if (!providerName) {
-      Alert.alert(
-        "Perfil no disponible",
-        "Esta publicación no contiene el nombre del proveedor."
-      );
-
-      return;
-    }
-
-    /*
-     * Usamos una URL directa para que Expo Router
-     * coloque correctamente el nombre dentro de [name].
-     */
     router.push(
-      `/provider-profile/${encodeURIComponent(
-        providerName
-      )}`
+      "/login"
     );
   };
+
+  const openInteraction =
+    () => {
+      router.push({
+        pathname:
+          "/confirm-service/[id]",
+
+        params: {
+          id:
+            item.supabaseId ||
+            String(
+              item.id
+            ),
+        },
+      });
+    };
+
+  const openServiceDetail =
+    () => {
+      router.push({
+        pathname:
+          "/service-detail/[id]",
+
+        params: {
+          id:
+            item.supabaseId ||
+            String(
+              item.id
+            ),
+        },
+      });
+    };
+
+  const openProviderProfile =
+    () => {
+      const providerName =
+        String(
+          item.person || ""
+        ).trim();
+
+      if (!providerName) {
+        Alert.alert(
+          "Perfil no disponible",
+          "Esta publicación no contiene el nombre del proveedor."
+        );
+
+        return;
+      }
+
+      router.push(
+        `/provider-profile/${encodeURIComponent(
+          providerName
+        )}`
+      );
+    };
 
   const resolveProviderUserId =
     async (): Promise<string> => {
@@ -290,21 +381,24 @@ export default function ServiceCard({
           (profile) => {
             const profileName =
               String(
-                profile.name || ""
+                profile.name ||
+                  ""
               )
                 .trim()
                 .toLowerCase();
 
             const profileEmail =
               String(
-                profile.email || ""
+                profile.email ||
+                  ""
               )
                 .trim()
                 .toLowerCase();
 
             const emailPrefix =
-              profileEmail
-                .split("@")[0];
+              profileEmail.split(
+                "@"
+              )[0];
 
             return (
               profileName ===
@@ -318,7 +412,8 @@ export default function ServiceCard({
         );
 
       const resolvedUserId =
-        foundProfile?.user_id || "";
+        foundProfile?.user_id ||
+        "";
 
       if (
         !resolvedUserId ||
@@ -340,7 +435,10 @@ export default function ServiceCard({
         !session ||
         !authUser?.id
       ) {
-        router.push("/login");
+        router.push(
+          "/login"
+        );
+
         return;
       }
 
@@ -367,7 +465,9 @@ export default function ServiceCard({
       }
 
       try {
-        setIsOpeningChat(true);
+        setIsOpeningChat(
+          true
+        );
 
         const providerUserId =
           await resolveProviderUserId();
@@ -398,7 +498,8 @@ export default function ServiceCard({
 
         const conversationId =
           String(
-            conversation.id || ""
+            conversation.id ||
+              ""
           );
 
         if (
@@ -438,51 +539,154 @@ export default function ServiceCard({
             "Ocurrió un error creando la conversación."
         );
       } finally {
-        setIsOpeningChat(false);
+        setIsOpeningChat(
+          false
+        );
       }
     };
 
   return (
-    <View style={styles.serviceCard}>
+    <TouchableOpacity
+      activeOpacity={0.96}
+      onPress={
+        onPressCard
+      }
+      disabled={
+        !onPressCard
+      }
+      style={[
+        styles.serviceCard,
+
+        isSelected && {
+          borderWidth: 2,
+          borderColor:
+            "#2F81F7",
+        },
+      ]}
+    >
       <View
         style={{
-          alignSelf: "flex-start",
-          paddingHorizontal: 11,
-          paddingVertical: 5,
-          borderRadius: 999,
-          marginBottom: 12,
+          flexDirection:
+            "row",
 
-          backgroundColor:
-            isRequest
-              ? "#A30716"
-              : "#0D2240",
+          justifyContent:
+            "space-between",
+
+          alignItems:
+            "center",
+
+          flexWrap:
+            "wrap",
+
+          gap:
+            8,
+
+          marginBottom:
+            12,
         }}
       >
-        <Text
+        <View
           style={{
-            color: "#FFFFFF",
-            fontSize: 12,
-            fontWeight: "800",
-            letterSpacing: 0.5,
+            alignSelf:
+              "flex-start",
+
+            paddingHorizontal:
+              11,
+
+            paddingVertical:
+              5,
+
+            borderRadius:
+              999,
+
+            backgroundColor:
+              isRequest
+                ? "#A30716"
+                : "#0D2240",
           }}
         >
-          {isRequest
-            ? "PEDIDO"
-            : "OFERTA"}
-        </Text>
+          <Text
+            style={{
+              color:
+                "#FFFFFF",
+
+              fontSize:
+                12,
+
+              fontWeight:
+                "800",
+
+              letterSpacing:
+                0.5,
+            }}
+          >
+            {isRequest
+              ? "PEDIDO"
+              : "OFERTA"}
+          </Text>
+        </View>
+
+        {item.distanceKm !==
+          null &&
+        item.distanceKm !==
+          undefined ? (
+          <View
+            style={{
+              paddingHorizontal:
+                11,
+
+              paddingVertical:
+                5,
+
+              borderRadius:
+                999,
+
+              backgroundColor:
+                "#143D2A",
+            }}
+          >
+            <Text
+              style={{
+                color:
+                  "#7EE787",
+
+                fontSize:
+                  12,
+
+                fontWeight:
+                  "800",
+              }}
+            >
+              📍{" "}
+              {formatDistance(
+                item.distanceKm
+              )}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.serviceHeader}>
+      <View
+        style={
+          styles.serviceHeader
+        }
+      >
         <Image
           source={{
             uri:
               item.avatar ||
               "https://i.pravatar.cc/300",
           }}
-          style={styles.avatar}
+          style={
+            styles.avatar
+          }
         />
 
-        <View style={{ flex: 1 }}>
+        <View
+          style={{
+            flex: 1,
+          }}
+        >
           <TouchableOpacity
             onPress={
               openProviderProfile
@@ -498,25 +702,67 @@ export default function ServiceCard({
             </Text>
           </TouchableOpacity>
 
-          <Text style={styles.ratingText}>
-            ⭐ {item.rating ?? 4.8}
+          <Text
+            style={
+              styles.ratingText
+            }
+          >
+            ⭐{" "}
+            {Number(
+              item.rating ?? 4.8
+            ).toFixed(1)}
           </Text>
+
+          {locationText ? (
+            <Text
+              style={{
+                color:
+                  "#AFAFAF",
+
+                fontSize:
+                  13,
+
+                marginTop:
+                  5,
+              }}
+            >
+              {locationText}
+            </Text>
+          ) : null}
         </View>
       </View>
 
-      <Text style={styles.serviceName}>
+      <Text
+        style={
+          styles.serviceName
+        }
+      >
         {item.service}
       </Text>
 
-      <Text style={styles.serviceDetail}>
-        Categoría: {item.category}
+      <Text
+        style={
+          styles.serviceDetail
+        }
+      >
+        Categoría:{" "}
+        {item.category}
       </Text>
 
-      <Text style={styles.serviceDetail}>
-        Modalidad: {item.mode}
+      <Text
+        style={
+          styles.serviceDetail
+        }
+      >
+        Modalidad:{" "}
+        {item.mode}
       </Text>
 
-      <Text style={styles.serviceCost}>
+      <Text
+        style={
+          styles.serviceCost
+        }
+      >
         {item.credits}{" "}
         {item.credits === 1
           ? "crédito / hora"
@@ -526,15 +772,23 @@ export default function ServiceCard({
       {description ? (
         <View
           style={{
-            marginTop: 14,
-            marginBottom: 4,
+            marginTop:
+              14,
+
+            marginBottom:
+              4,
           }}
         >
           <Text
             style={{
-              color: "#D0D0D0",
-              fontSize: 14,
-              lineHeight: 20,
+              color:
+                "#D0D0D0",
+
+              fontSize:
+                14,
+
+              lineHeight:
+                20,
             }}
             numberOfLines={2}
             ellipsizeMode="tail"
@@ -545,10 +799,17 @@ export default function ServiceCard({
       ) : (
         <Text
           style={{
-            color: "#888888",
-            fontSize: 13,
-            marginTop: 14,
-            fontStyle: "italic",
+            color:
+              "#888888",
+
+            fontSize:
+              13,
+
+            marginTop:
+              14,
+
+            fontStyle:
+              "italic",
           }}
         >
           Sin descripción adicional.
@@ -559,7 +820,8 @@ export default function ServiceCard({
         style={[
           styles.contactButton,
           {
-            marginTop: 16,
+            marginTop:
+              16,
           },
         ]}
         onPress={
@@ -580,7 +842,9 @@ export default function ServiceCard({
           style={
             styles.confirmButton
           }
-          onPress={openLogin}
+          onPress={
+            openLogin
+          }
         >
           <Text
             style={
@@ -601,7 +865,8 @@ export default function ServiceCard({
 
               isOpeningChat
                 ? {
-                    opacity: 0.5,
+                    opacity:
+                      0.5,
                   }
                 : null,
             ]}
@@ -687,6 +952,6 @@ export default function ServiceCard({
           </Text>
         </View>
       ) : null}
-    </View>
+    </TouchableOpacity>
   );
 }

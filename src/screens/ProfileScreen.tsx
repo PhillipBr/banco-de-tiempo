@@ -1,7 +1,10 @@
 import {
   useCallback,
+  useEffect,
+  useRef,
   useState,
 } from "react";
+
 import {
   Image,
   ScrollView,
@@ -9,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import {
   router,
   useFocusEffect,
@@ -18,10 +22,19 @@ import Header from "../components/Header";
 import CreditCard from "../components/CreditCard";
 import HistoryCard from "../components/HistoryCard";
 import ProfileShortcutCard from "../components/ProfileShortcutCard";
+import TrustCard from "../components/TrustCard";
 
-import { styles } from "../theme/styles";
-import { useAppContext } from "../context/AppContext";
-import { useAuthContext } from "../context/AuthContext";
+import {
+  styles,
+} from "../theme/styles";
+
+import {
+  useAppContext,
+} from "../context/AppContext";
+
+import {
+  useAuthContext,
+} from "../context/AuthContext";
 
 import {
   getOrCreateProfileByUserId,
@@ -29,7 +42,7 @@ import {
 } from "../lib/profileApi";
 
 import {
-  getServices,
+  getServicesByProviderUserId,
   mapSupabaseServiceToAppService,
 } from "../lib/serviceApi";
 
@@ -38,12 +51,24 @@ import {
   mapSupabaseRequestToAppRequest,
 } from "../lib/requestApi";
 
-import { getFavoritesByUser } from "../lib/favoriteApi";
+import {
+  getFavoritesByUser,
+} from "../lib/favoriteApi";
 
 import {
   getNotifications,
   mapSupabaseNotificationToAppNotification,
 } from "../lib/notificationApi";
+
+import {
+  getTransactionsByUserId,
+  mapTransactionToHistoryItem,
+} from "../lib/transactionApi";
+
+import {
+  getUserTrustStats,
+  TrustStats,
+} from "../lib/trustApi";
 
 export default function ProfileScreen() {
   const {
@@ -58,8 +83,32 @@ export default function ProfileScreen() {
     resetLocalData,
   } = useAppContext();
 
-  const [profileUser, setProfileUser] =
-    useState(user);
+  const currentUserId =
+    authUser?.id ?? "";
+
+  const currentUserEmail =
+    authUser?.email ?? "";
+
+  const updateUserRef =
+    useRef(updateUser);
+
+  const isLoadingRef =
+    useRef(false);
+
+  const hasLoadedRef =
+    useRef(false);
+
+  const [
+    profileUser,
+    setProfileUser,
+  ] = useState(user);
+
+  const [
+    trustStats,
+    setTrustStats,
+  ] = useState<TrustStats | null>(
+    null
+  );
 
   const [
     myServicesCount,
@@ -92,138 +141,242 @@ export default function ProfileScreen() {
   ] = useState(0);
 
   const [
-    isLoadingProfile,
-    setIsLoadingProfile,
+    isInitialLoading,
+    setIsInitialLoading,
+  ] = useState(true);
+
+  const [
+    isRefreshing,
+    setIsRefreshing,
   ] = useState(false);
 
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
+
+  useEffect(() => {
+    updateUserRef.current =
+      updateUser;
+  }, [updateUser]);
+
+  useEffect(() => {
+    setProfileUser(user);
+  }, [user]);
+
   const loadProfileDashboard =
-    useCallback(async () => {
-      if (!authUser?.id) {
-        return;
-      }
+    useCallback(
+      async (
+        showFullLoading = false
+      ) => {
+        if (!currentUserId) {
+          setIsInitialLoading(false);
+          return;
+        }
 
-      try {
-        setIsLoadingProfile(true);
+        if (isLoadingRef.current) {
+          return;
+        }
 
-        const profile =
-          await getOrCreateProfileByUserId(
-            authUser.id,
-            authUser.email
+        try {
+          isLoadingRef.current = true;
+
+          setErrorMessage("");
+
+          if (
+            showFullLoading ||
+            !hasLoadedRef.current
+          ) {
+            setIsInitialLoading(true);
+          } else {
+            setIsRefreshing(true);
+          }
+
+          const profile =
+            await getOrCreateProfileByUserId(
+              currentUserId,
+              currentUserEmail
+            );
+
+          const mappedUser =
+            mapSupabaseProfileToAppUser(
+              profile
+            );
+
+          const [
+            servicesData,
+            requestsData,
+            favoritesData,
+            notificationsData,
+            transactionsData,
+            trustData,
+          ] = await Promise.all([
+            getServicesByProviderUserId(
+              currentUserId
+            ),
+
+            getRequests(),
+
+            getFavoritesByUser(
+              mappedUser.name
+            ),
+
+            getNotifications(),
+
+            getTransactionsByUserId(
+              currentUserId
+            ),
+
+            getUserTrustStats(
+              currentUserId
+            ),
+          ]);
+
+          const mappedServices =
+            servicesData.map(
+              mapSupabaseServiceToAppService
+            );
+
+          const mappedRequests =
+            requestsData.map(
+              mapSupabaseRequestToAppRequest
+            );
+
+          const mappedNotifications =
+            notificationsData.map(
+              mapSupabaseNotificationToAppNotification
+            );
+
+          const mappedHistory =
+            transactionsData.map(
+              (transaction) =>
+                mapTransactionToHistoryItem(
+                  transaction,
+                  currentUserId
+                )
+            );
+
+          const localHistory =
+            mappedHistory.map(
+              (
+                item,
+                index
+              ) => ({
+                id:
+                  Date.now() +
+                  index,
+
+                type:
+                  item.type,
+
+                description:
+                  `${item.serviceName}: ${item.description}`,
+
+                credits:
+                  item.credits,
+
+                date:
+                  item.date,
+              })
+            );
+
+          const completeMappedUser = {
+            ...mappedUser,
+
+            offeredServices:
+              user.offeredServices,
+
+            neededServices:
+              user.neededServices,
+
+            history:
+              localHistory,
+          };
+
+          setProfileUser(
+            completeMappedUser
           );
 
-        const mappedUser =
-          mapSupabaseProfileToAppUser(
-            profile
+          setTrustStats(
+            trustData
           );
 
-        setProfileUser(mappedUser);
-
-        updateUser({
-          ...mappedUser,
-          offeredServices:
-            user.offeredServices,
-          neededServices:
-            user.neededServices,
-          history: user.history,
-        });
-
-        const servicesData =
-          await getServices();
-
-        const mappedServices =
-          servicesData.map(
-            mapSupabaseServiceToAppService
+          updateUserRef.current(
+            completeMappedUser
           );
 
-        const normalizedUserName =
-          mappedUser.name
-            .trim()
-            .toLowerCase();
-
-        const myServices =
-          mappedServices.filter(
-            (service) =>
-              service.person
-                .trim()
-                .toLowerCase() ===
-              normalizedUserName
+          setMyServicesCount(
+            mappedServices.length
           );
 
-        setMyServicesCount(
-          myServices.length
-        );
-
-        setMyOffersCount(
-          myServices.filter(
-            (service) =>
-              service.serviceType !==
-              "request"
-          ).length
-        );
-
-        setMyRequestsCount(
-          myServices.filter(
-            (service) =>
-              service.serviceType ===
-              "request"
-          ).length
-        );
-
-        const requestsData =
-          await getRequests();
-
-        const mappedRequests =
-          requestsData.map(
-            mapSupabaseRequestToAppRequest
+          setMyOffersCount(
+            mappedServices.filter(
+              (service) =>
+                service.serviceType ===
+                "offer"
+            ).length
           );
 
-        const pendingRequests =
-          mappedRequests.filter(
-            (request) =>
-              request.status ===
-                "pending" &&
-              (request.requesterName ===
-                mappedUser.name ||
-                request.providerName ===
-                  mappedUser.name)
+          setMyRequestsCount(
+            mappedServices.filter(
+              (service) =>
+                service.serviceType ===
+                "request"
+            ).length
           );
 
-        setPendingRequestsCount(
-          pendingRequests.length
-        );
+          const pendingRequests =
+            mappedRequests.filter(
+              (request) =>
+                request.status ===
+                  "pending" &&
+                (
+                  request.requesterUserId ===
+                    currentUserId ||
+                  request.providerUserId ===
+                    currentUserId
+                )
+            );
 
-        const favoritesData =
-          await getFavoritesByUser(
-            mappedUser.name
+          setPendingRequestsCount(
+            pendingRequests.length
           );
 
-        setFavoritesCount(
-          favoritesData.length
-        );
-
-        const notificationsData =
-          await getNotifications();
-
-        const mappedNotifications =
-          notificationsData.map(
-            mapSupabaseNotificationToAppNotification
+          setFavoritesCount(
+            favoritesData.length
           );
 
-        setUnreadNotificationsCount(
-          mappedNotifications.filter(
-            (notification) =>
-              !notification.read
-          ).length
-        );
-      } catch (error) {
-        console.log(
-          "Error cargando perfil:",
-          error
-        );
-      } finally {
-        setIsLoadingProfile(false);
-      }
-    }, [authUser?.id]);
+          setUnreadNotificationsCount(
+            mappedNotifications.filter(
+              (notification) =>
+                !notification.read
+            ).length
+          );
+
+          hasLoadedRef.current = true;
+        } catch (error: any) {
+          console.error(
+            "Error cargando perfil:",
+            error
+          );
+
+          setErrorMessage(
+            error?.message ||
+              "No se pudo cargar el perfil."
+          );
+        } finally {
+          isLoadingRef.current = false;
+          setIsInitialLoading(false);
+          setIsRefreshing(false);
+        }
+      },
+      [
+        currentUserId,
+        currentUserEmail,
+        user.offeredServices,
+        user.neededServices,
+      ]
+    );
 
   useFocusEffect(
     useCallback(() => {
@@ -231,35 +384,56 @@ export default function ProfileScreen() {
         !isAuthLoading &&
         !session
       ) {
-        router.replace("/login");
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
       if (
         session &&
-        authUser?.id
+        currentUserId &&
+        !hasLoadedRef.current
       ) {
-        loadProfileDashboard();
+        void loadProfileDashboard(
+          true
+        );
       }
     }, [
       session,
-      authUser?.id,
+      currentUserId,
       isAuthLoading,
       loadProfileDashboard,
     ])
   );
 
+  const handleRefresh =
+    useCallback(() => {
+      void loadProfileDashboard(
+        false
+      );
+    }, [loadProfileDashboard]);
+
   if (
     isAuthLoading ||
-    isLoadingProfile
+    isInitialLoading
   ) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView
+        style={styles.page}
+      >
         <Header />
 
-        <View style={styles.formSection}>
+        <View
+          style={
+            styles.formSection
+          }
+        >
           <Text
-            style={styles.screenTitle}
+            style={
+              styles.screenTitle
+            }
           >
             Cargando perfil...
           </Text>
@@ -268,22 +442,37 @@ export default function ProfileScreen() {
     );
   }
 
-  if (!session) {
+  if (
+    !session ||
+    !currentUserId
+  ) {
     return (
-      <ScrollView style={styles.page}>
+      <ScrollView
+        style={styles.page}
+      >
         <Header />
 
-        <View style={styles.formSection}>
+        <View
+          style={
+            styles.formSection
+          }
+        >
           <Text
-            style={styles.screenTitle}
+            style={
+              styles.screenTitle
+            }
           >
             Necesitas iniciar sesión
           </Text>
 
           <TouchableOpacity
-            style={styles.primaryButton}
+            style={
+              styles.primaryButton
+            }
             onPress={() =>
-              router.push("/login")
+              router.push(
+                "/login"
+              )
             }
           >
             <Text
@@ -303,15 +492,73 @@ export default function ProfileScreen() {
     profileUser.skills ?? [];
 
   return (
-    <ScrollView style={styles.page}>
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={{
+        paddingBottom: 50,
+      }}
+    >
       <Header />
 
-      <View style={styles.formSection}>
-        <Text style={styles.screenTitle}>
+      <View
+        style={
+          styles.formSection
+        }
+      >
+        <Text
+          style={
+            styles.screenTitle
+          }
+        >
           Mi perfil
         </Text>
 
-        <View style={styles.profileCard}>
+        {errorMessage ? (
+          <View
+            style={
+              styles.emptyStateCard
+            }
+          >
+            <Text
+              style={
+                styles.emptyStateTitle
+              }
+            >
+              Error
+            </Text>
+
+            <Text
+              style={
+                styles.emptyStateText
+              }
+            >
+              {errorMessage}
+            </Text>
+
+            <TouchableOpacity
+              style={
+                styles.contactButton
+              }
+              onPress={
+                handleRefresh
+              }
+            >
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                Reintentar
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <View
+          style={
+            styles.profileCard
+          }
+        >
           <Image
             source={{
               uri:
@@ -328,16 +575,21 @@ export default function ProfileScreen() {
           />
 
           <Text
-            style={styles.profileName}
+            style={
+              styles.profileName
+            }
           >
             {profileUser.name}
           </Text>
 
           <Text
-            style={styles.profileLine}
+            style={
+              styles.profileLine
+            }
           >
             {profileUser.city ||
               "Ciudad no indicada"}
+
             {profileUser.community
               ? ` · ${profileUser.community}`
               : ""}
@@ -345,7 +597,9 @@ export default function ProfileScreen() {
 
           {profileUser.email ? (
             <Text
-              style={styles.profileLine}
+              style={
+                styles.profileLine
+              }
             >
               {profileUser.email}
             </Text>
@@ -354,14 +608,18 @@ export default function ProfileScreen() {
           <Text
             style={[
               styles.cardTitle,
-              { marginTop: 22 },
+              {
+                marginTop: 22,
+              },
             ]}
           >
             Sobre mí
           </Text>
 
           <Text
-            style={styles.profileLine}
+            style={
+              styles.profileLine
+            }
           >
             {profileUser.bio ||
               "Todavía no has agregado una biografía."}
@@ -370,7 +628,9 @@ export default function ProfileScreen() {
           <Text
             style={[
               styles.cardTitle,
-              { marginTop: 22 },
+              {
+                marginTop: 22,
+              },
             ]}
           >
             Habilidades
@@ -378,10 +638,11 @@ export default function ProfileScreen() {
 
           {skills.length === 0 ? (
             <Text
-              style={styles.profileLine}
+              style={
+                styles.profileLine
+              }
             >
-              Todavía no has agregado
-              habilidades.
+              Todavía no has agregado habilidades.
             </Text>
           ) : (
             <View
@@ -389,27 +650,31 @@ export default function ProfileScreen() {
                 styles.filterRow
               }
             >
-              {skills.map((skill) => (
-                <View
-                  key={skill}
-                  style={
-                    styles.filterButton
-                  }
-                >
-                  <Text
+              {skills.map(
+                (skill) => (
+                  <View
+                    key={skill}
                     style={
-                      styles.filterButtonText
+                      styles.filterButton
                     }
                   >
-                    {skill}
-                  </Text>
-                </View>
-              ))}
+                    <Text
+                      style={
+                        styles.filterButtonText
+                      }
+                    >
+                      {skill}
+                    </Text>
+                  </View>
+                )
+              )}
             </View>
           )}
 
           <View
-            style={{ marginTop: 24 }}
+            style={{
+              marginTop: 24,
+            }}
           >
             <CreditCard
               credits={
@@ -440,7 +705,9 @@ export default function ProfileScreen() {
           </Text>
 
           <TouchableOpacity
-            style={styles.primaryButton}
+            style={
+              styles.primaryButton
+            }
             onPress={() =>
               router.push(
                 "/edit-profile"
@@ -456,11 +723,49 @@ export default function ProfileScreen() {
             </Text>
           </TouchableOpacity>
 
-          <Text
+          <TouchableOpacity
             style={[
-              styles.cardTitle,
-              { marginTop: 28 },
+              styles.contactButton,
+              isRefreshing && {
+                opacity: 0.6,
+              },
             ]}
+            onPress={
+              handleRefresh
+            }
+            disabled={
+              isRefreshing
+            }
+          >
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
+              {isRefreshing
+                ? "Actualizando..."
+                : "Actualizar perfil"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {trustStats ? (
+          <TrustCard
+            stats={
+              trustStats
+            }
+          />
+        ) : null}
+
+        <View
+          style={
+            styles.profileCard
+          }
+        >
+          <Text
+            style={
+              styles.cardTitle
+            }
           >
             Actividad
           </Text>
@@ -510,7 +815,9 @@ export default function ProfileScreen() {
           <Text
             style={[
               styles.cardTitle,
-              { marginTop: 24 },
+              {
+                marginTop: 24,
+              },
             ]}
           >
             Historial reciente
@@ -519,26 +826,33 @@ export default function ProfileScreen() {
           {profileUser.history.length ===
           0 ? (
             <Text
-              style={styles.profileLine}
+              style={
+                styles.profileLine
+              }
             >
-              Todavía no hay movimientos
-              recientes.
+              Todavía no hay movimientos recientes.
             </Text>
           ) : (
             profileUser.history
               .slice(0, 3)
-              .map((item) => (
-                <HistoryCard
-                  key={item.id}
-                  item={item}
-                />
-              ))
+              .map(
+                (item) => (
+                  <HistoryCard
+                    key={item.id}
+                    item={item}
+                  />
+                )
+              )
           )}
         </View>
 
         <TouchableOpacity
-          style={styles.dangerButton}
-          onPress={resetLocalData}
+          style={
+            styles.dangerButton
+          }
+          onPress={
+            resetLocalData
+          }
         >
           <Text
             style={
@@ -550,7 +864,9 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.backButton}
+          style={
+            styles.backButton
+          }
           onPress={() =>
             router.push("/")
           }

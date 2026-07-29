@@ -23,7 +23,9 @@ import * as ImagePicker from "expo-image-picker";
 
 import Header from "../components/Header";
 
-import { styles } from "../theme/styles";
+import {
+  styles,
+} from "../theme/styles";
 
 import {
   useAppContext,
@@ -43,8 +45,40 @@ import {
   uploadProfileAvatar,
 } from "../lib/avatarApi";
 
+import {
+  formatCoordinate,
+  LocationVisibility,
+  requestCurrentLocation,
+  reverseGeocodeCoordinates,
+} from "../lib/locationApi";
+
 const DEFAULT_AVATAR =
   "https://i.pravatar.cc/300?img=12";
+
+const locationVisibilityOptions: {
+  value: LocationVisibility;
+  title: string;
+  description: string;
+}[] = [
+  {
+    value: "hidden",
+    title: "Oculta",
+    description:
+      "Tu ubicación no aparecerá en búsquedas cercanas.",
+  },
+  {
+    value: "community",
+    title: "Comunidad",
+    description:
+      "Permite encontrarte cerca, sin mostrar coordenadas exactas.",
+  },
+  {
+    value: "public",
+    title: "Pública",
+    description:
+      "Tu ubicación aproximada podrá usarse en mapas comunitarios.",
+  },
+];
 
 export default function EditProfileScreen() {
   const {
@@ -58,40 +92,48 @@ export default function EditProfileScreen() {
     updateUser,
   } = useAppContext();
 
-  const [name, setName] =
-    useState("");
+  const [
+    name,
+    setName,
+  ] = useState("");
 
-  const [email, setEmail] =
-    useState("");
+  const [
+    email,
+    setEmail,
+  ] = useState("");
 
-  const [phone, setPhone] =
-    useState("");
+  const [
+    phone,
+    setPhone,
+  ] = useState("");
 
-  const [city, setCity] =
-    useState("Toronto");
+  const [
+    city,
+    setCity,
+  ] = useState("Toronto");
 
-  const [community, setCommunity] =
-    useState("");
+  const [
+    community,
+    setCommunity,
+  ] = useState("");
 
-  const [bio, setBio] =
-    useState("");
+  const [
+    bio,
+    setBio,
+  ] = useState("");
 
   const [
     skillsText,
     setSkillsText,
   ] = useState("");
 
-  /*
-   * URL remota que ya está guardada
-   * en la tabla profiles.
-   */
-  const [avatar, setAvatar] =
-    useState(DEFAULT_AVATAR);
+  const [
+    avatar,
+    setAvatar,
+  ] = useState(
+    DEFAULT_AVATAR
+  );
 
-  /*
-   * URI temporal de la nueva foto
-   * seleccionada desde el dispositivo.
-   */
   const [
     selectedImageUri,
     setSelectedImageUri,
@@ -100,7 +142,36 @@ export default function EditProfileScreen() {
   const [
     selectedImageMimeType,
     setSelectedImageMimeType,
-  ] = useState<string | null>(null);
+  ] = useState<string | null>(
+    null
+  );
+
+  const [
+    latitude,
+    setLatitude,
+  ] = useState<number | null>(
+    null
+  );
+
+  const [
+    longitude,
+    setLongitude,
+  ] = useState<number | null>(
+    null
+  );
+
+  const [
+    locationVisibility,
+    setLocationVisibility,
+  ] =
+    useState<LocationVisibility>(
+      "community"
+    );
+
+  const [
+    isLoadingLocation,
+    setIsLoadingLocation,
+  ] = useState(false);
 
   const [
     isLoading,
@@ -112,9 +183,6 @@ export default function EditProfileScreen() {
     setIsSaving,
   ] = useState(false);
 
-  /*
-   * Carga los datos actuales desde Supabase.
-   */
   const loadProfile =
     useCallback(async () => {
       if (!authUser?.id) {
@@ -130,34 +198,59 @@ export default function EditProfileScreen() {
             authUser.email
           );
 
-        setName(profile.name ?? "");
-        setEmail(profile.email ?? "");
-        setPhone(profile.phone ?? "");
+        setName(
+          profile.name ?? ""
+        );
+
+        setEmail(
+          profile.email ?? ""
+        );
+
+        setPhone(
+          profile.phone ?? ""
+        );
 
         setCity(
           profile.city ||
-          "Toronto"
+            "Toronto"
         );
 
         setCommunity(
           profile.community ?? ""
         );
 
-        setBio(profile.bio ?? "");
+        setBio(
+          profile.bio ?? ""
+        );
 
         setSkillsText(
-          (profile.skills ?? []).join(
-            ", "
-          )
+          (
+            profile.skills ?? []
+          ).join(", ")
         );
 
         setAvatar(
           profile.avatar ||
-          DEFAULT_AVATAR
+            DEFAULT_AVATAR
+        );
+
+        setLatitude(
+          profile.latitude
+        );
+
+        setLongitude(
+          profile.longitude
+        );
+
+        setLocationVisibility(
+          profile.location_visibility ||
+            "community"
         );
 
         setSelectedImageUri("");
-        setSelectedImageMimeType(null);
+        setSelectedImageMimeType(
+          null
+        );
       } catch (error: any) {
         console.error(
           "Error cargando perfil:",
@@ -177,17 +270,16 @@ export default function EditProfileScreen() {
       authUser?.email,
     ]);
 
-  /*
-   * Cada vez que se abre la pantalla,
-   * revisa la sesión y carga el perfil.
-   */
   useFocusEffect(
     useCallback(() => {
       if (
         !isAuthLoading &&
         !session
       ) {
-        router.replace("/login");
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
@@ -195,7 +287,7 @@ export default function EditProfileScreen() {
         session &&
         authUser?.id
       ) {
-        loadProfile();
+        void loadProfile();
       }
     }, [
       session,
@@ -205,250 +297,336 @@ export default function EditProfileScreen() {
     ])
   );
 
-  /*
-   * Convierte:
-   *
-   * Matemáticas, Tecnología, Inglés
-   *
-   * en:
-   *
-   * ["Matemáticas", "Tecnología", "Inglés"]
-   */
-  const parseSkills = (): string[] => {
-    return Array.from(
-      new Set(
-        skillsText
-          .split(",")
-          .map((skill) =>
-            skill.trim()
-          )
-          .filter(Boolean)
-      )
-    );
-  };
+  const parseSkills =
+    (): string[] => {
+      return Array.from(
+        new Set(
+          skillsText
+            .split(",")
+            .map((skill) =>
+              skill.trim()
+            )
+            .filter(Boolean)
+        )
+      );
+    };
 
-  /*
-   * HANDLE significa "manejar".
-   *
-   * Esta función maneja la selección
-   * de una imagen desde el dispositivo.
-   */
-  const handlePickImage = async () => {
-    try {
-      /*
-       * En Android e iOS pedimos permiso.
-       * En navegador no es necesario.
-       */
-      if (Platform.OS !== "web") {
-        const permissionResult =
+  const handlePickImage =
+    async () => {
+      try {
+        if (
+          Platform.OS !==
+          "web"
+        ) {
+          const permissionResult =
+            await ImagePicker
+              .requestMediaLibraryPermissionsAsync();
+
+          if (
+            !permissionResult.granted
+          ) {
+            Alert.alert(
+              "Permiso requerido",
+              "Debes permitir acceso a tus fotos para seleccionar una imagen."
+            );
+
+            return;
+          }
+        }
+
+        const result =
           await ImagePicker
-            .requestMediaLibraryPermissionsAsync();
+            .launchImageLibraryAsync({
+              mediaTypes:
+                ImagePicker
+                  .MediaTypeOptions
+                  .Images,
 
-        if (!permissionResult.granted) {
+              allowsEditing:
+                true,
+
+              aspect:
+                [1, 1],
+
+              quality:
+                0.8,
+            });
+
+        if (result.canceled) {
+          return;
+        }
+
+        const selectedAsset =
+          result.assets?.[0];
+
+        if (
+          !selectedAsset?.uri
+        ) {
           Alert.alert(
-            "Permiso requerido",
-            "Debes permitir acceso a tus fotos para seleccionar una imagen."
+            "Error",
+            "No se pudo leer la imagen seleccionada."
           );
 
           return;
         }
-      }
 
-      const result =
-        await ImagePicker
-          .launchImageLibraryAsync({
-            mediaTypes:
-              ImagePicker
-                .MediaTypeOptions
-                .Images,
-
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.8,
-          });
-
-      if (result.canceled) {
-        return;
-      }
-
-      const selectedAsset =
-        result.assets?.[0];
-
-      if (!selectedAsset?.uri) {
-        Alert.alert(
-          "Error",
-          "No se pudo leer la imagen seleccionada."
+        setSelectedImageUri(
+          selectedAsset.uri
         );
 
-        return;
+        setSelectedImageMimeType(
+          selectedAsset.mimeType ??
+            null
+        );
+      } catch (error: any) {
+        console.error(
+          "Error seleccionando imagen:",
+          error
+        );
+
+        Alert.alert(
+          "Error",
+          error?.message ||
+            "No se pudo seleccionar la imagen."
+        );
       }
+    };
 
-      setSelectedImageUri(
-        selectedAsset.uri
-      );
-
-      setSelectedImageMimeType(
-        selectedAsset.mimeType ??
-          null
-      );
-    } catch (error: any) {
-      console.error(
-        "Error seleccionando imagen:",
-        error
-      );
-
-      Alert.alert(
-        "Error",
-        error?.message ||
-          "No se pudo seleccionar la imagen."
-      );
-    }
-  };
-
-  /*
-   * Cancela la nueva imagen seleccionada.
-   * No elimina la foto antigua.
-   */
   const handleRemoveSelectedImage =
     () => {
       setSelectedImageUri("");
-      setSelectedImageMimeType(null);
+      setSelectedImageMimeType(
+        null
+      );
     };
 
-  /*
-   * Esta función:
-   *
-   * 1. Valida los datos.
-   * 2. Sube la imagen a Supabase Storage.
-   * 3. Obtiene la URL pública.
-   * 4. Guarda la URL en profiles.avatar.
-   * 5. Actualiza el AppContext.
-   */
-  const handleSaveProfile = async () => {
-    const normalizedName =
-      name.trim();
+  const handleUseCurrentLocation =
+    async () => {
+      try {
+        setIsLoadingLocation(
+          true
+        );
 
-    if (!normalizedName) {
-      Alert.alert(
-        "Nombre requerido",
-        "Escribe tu nombre."
+        const coordinates =
+          await requestCurrentLocation();
+
+        setLatitude(
+          coordinates.latitude
+        );
+
+        setLongitude(
+          coordinates.longitude
+        );
+
+        if (
+          locationVisibility ===
+          "hidden"
+        ) {
+          setLocationVisibility(
+            "community"
+          );
+        }
+
+        const address =
+          await reverseGeocodeCoordinates(
+            coordinates.latitude,
+            coordinates.longitude
+          );
+
+        if (address) {
+          if (
+            address.city &&
+            (
+              !city.trim() ||
+              city.trim() ===
+                "Toronto"
+            )
+          ) {
+            setCity(
+              address.city
+            );
+          }
+
+          if (
+            address.community &&
+            !community.trim()
+          ) {
+            setCommunity(
+              address.community
+            );
+          }
+        }
+
+        Alert.alert(
+          "Ubicación obtenida",
+          "Tu ubicación aproximada está lista. Presiona Guardar cambios para actualizar el perfil."
+        );
+      } catch (error: any) {
+        console.error(
+          "Error obteniendo ubicación:",
+          error
+        );
+
+        Alert.alert(
+          "No se pudo obtener la ubicación",
+          error?.message ||
+            "Revisa los permisos del navegador o dispositivo."
+        );
+      } finally {
+        setIsLoadingLocation(
+          false
+        );
+      }
+    };
+
+  const handleRemoveLocation =
+    () => {
+      setLatitude(null);
+      setLongitude(null);
+      setLocationVisibility(
+        "hidden"
       );
 
-      return;
-    }
-
-    if (!authUser?.id) {
       Alert.alert(
-        "Error",
-        "No se encontró el usuario autenticado."
+        "Ubicación eliminada",
+        "Presiona Guardar cambios para confirmar."
       );
+    };
 
-      return;
-    }
+  const handleSaveProfile =
+    async () => {
+      const normalizedName =
+        name.trim();
 
-    try {
-      setIsSaving(true);
+      if (!normalizedName) {
+        Alert.alert(
+          "Nombre requerido",
+          "Escribe tu nombre."
+        );
 
-      /*
-       * Primero usamos la foto existente.
-       */
-      let finalAvatarUrl =
-        avatar || DEFAULT_AVATAR;
-
-      /*
-       * Cuando existe una foto local nueva,
-       * la subimos a Supabase Storage.
-       */
-      if (selectedImageUri) {
-        finalAvatarUrl =
-          await uploadProfileAvatar({
-            userId: authUser.id,
-            uri: selectedImageUri,
-            mimeType:
-              selectedImageMimeType,
-          });
+        return;
       }
 
-      /*
-       * Guardamos toda la información
-       * en la tabla profiles.
-       */
-      const updatedProfile =
-        await updateProfileByUserId(
-          authUser.id,
-          {
-            name: normalizedName,
-
-            email:
-              email.trim() ||
-              authUser.email ||
-              "",
-
-            phone: phone.trim(),
-
-            city: city.trim(),
-
-            community:
-              community.trim(),
-
-            bio: bio.trim(),
-
-            skills: parseSkills(),
-
-            avatar: finalAvatarUrl,
-          }
+      if (!authUser?.id) {
+        Alert.alert(
+          "Error",
+          "No se encontró el usuario autenticado."
         );
 
-      /*
-       * Convertimos el perfil de Supabase
-       * al formato utilizado por AppContext.
-       */
-      const mappedUser =
-        mapSupabaseProfileToAppUser(
-          updatedProfile
+        return;
+      }
+
+      try {
+        setIsSaving(true);
+
+        let finalAvatarUrl =
+          avatar ||
+          DEFAULT_AVATAR;
+
+        if (selectedImageUri) {
+          finalAvatarUrl =
+            await uploadProfileAvatar({
+              userId:
+                authUser.id,
+
+              uri:
+                selectedImageUri,
+
+              mimeType:
+                selectedImageMimeType,
+            });
+        }
+
+        const updatedProfile =
+          await updateProfileByUserId(
+            authUser.id,
+            {
+              name:
+                normalizedName,
+
+              email:
+                email.trim() ||
+                authUser.email ||
+                "",
+
+              phone:
+                phone.trim(),
+
+              city:
+                city.trim(),
+
+              community:
+                community.trim(),
+
+              bio:
+                bio.trim(),
+
+              skills:
+                parseSkills(),
+
+              avatar:
+                finalAvatarUrl,
+
+              latitude,
+
+              longitude,
+
+              location_visibility:
+                locationVisibility,
+            }
+          );
+
+        const mappedUser =
+          mapSupabaseProfileToAppUser(
+            updatedProfile
+          );
+
+        updateUser({
+          ...mappedUser,
+
+          offeredServices:
+            user.offeredServices,
+
+          neededServices:
+            user.neededServices,
+
+          history:
+            user.history,
+        });
+
+        setAvatar(
+          finalAvatarUrl
         );
 
-      /*
-       * Actualizamos los datos locales
-       * sin borrar el historial.
-       */
-      updateUser({
-        ...mappedUser,
+        setSelectedImageUri("");
 
-        offeredServices:
-          user.offeredServices,
+        setSelectedImageMimeType(
+          null
+        );
 
-        neededServices:
-          user.neededServices,
+        Alert.alert(
+          "Perfil actualizado",
+          "Tus datos, foto y configuración de ubicación fueron guardados."
+        );
 
-        history: user.history,
-      });
+        router.replace(
+          "/profile"
+        );
+      } catch (error: any) {
+        console.error(
+          "Error actualizando perfil:",
+          error
+        );
 
-      setAvatar(finalAvatarUrl);
-      setSelectedImageUri("");
-      setSelectedImageMimeType(null);
-
-      Alert.alert(
-        "Perfil actualizado",
-        "Tus datos y tu foto fueron guardados correctamente."
-      );
-
-      router.replace("/profile");
-    } catch (error: any) {
-      console.error(
-        "Error actualizando perfil:",
-        error
-      );
-
-      Alert.alert(
-        "Error",
-        error?.message ||
-          "No se pudo actualizar el perfil."
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
+        Alert.alert(
+          "Error",
+          error?.message ||
+            "No se pudo actualizar el perfil."
+        );
+      } finally {
+        setIsSaving(false);
+      }
+    };
 
   if (
     isAuthLoading ||
@@ -494,7 +672,9 @@ export default function EditProfileScreen() {
               styles.primaryButton
             }
             onPress={() =>
-              router.replace("/login")
+              router.replace(
+                "/login"
+              )
             }
           >
             <Text
@@ -514,6 +694,10 @@ export default function EditProfileScreen() {
     selectedImageUri ||
     avatar ||
     DEFAULT_AVATAR;
+
+  const hasLocation =
+    latitude !== null &&
+    longitude !== null;
 
   return (
     <ScrollView
@@ -537,7 +721,8 @@ export default function EditProfileScreen() {
           style={styles.screenSubtitle}
         >
           Actualiza tu información,
-          comunidad, habilidades y foto.
+          comunidad, habilidades, foto y
+          ubicación aproximada.
         </Text>
 
         <Image
@@ -545,34 +730,71 @@ export default function EditProfileScreen() {
             uri: previewAvatar,
           }}
           style={{
-            width: 120,
-            height: 120,
-            borderRadius: 60,
-            alignSelf: "center",
-            marginTop: 18,
-            marginBottom: 16,
-            backgroundColor: "#222222",
+            width:
+              120,
+
+            height:
+              120,
+
+            borderRadius:
+              60,
+
+            alignSelf:
+              "center",
+
+            marginTop:
+              18,
+
+            marginBottom:
+              16,
+
+            backgroundColor:
+              "#222222",
           }}
         />
 
         <TouchableOpacity
-          onPress={handlePickImage}
-          disabled={isSaving}
+          onPress={
+            handlePickImage
+          }
+          disabled={
+            isSaving
+          }
           style={{
-            alignSelf: "center",
-            backgroundColor: "#ffffff",
-            paddingVertical: 12,
-            paddingHorizontal: 26,
-            borderRadius: 8,
-            marginBottom: 12,
-            opacity: isSaving ? 0.6 : 1,
+            alignSelf:
+              "center",
+
+            backgroundColor:
+              "#ffffff",
+
+            paddingVertical:
+              12,
+
+            paddingHorizontal:
+              26,
+
+            borderRadius:
+              8,
+
+            marginBottom:
+              12,
+
+            opacity:
+              isSaving
+                ? 0.6
+                : 1,
           }}
         >
           <Text
             style={{
-              color: "#000000",
-              fontSize: 15,
-              fontWeight: "700",
+              color:
+                "#000000",
+
+              fontSize:
+                15,
+
+              fontWeight:
+                "700",
             }}
           >
             Seleccionar foto
@@ -583,9 +805,14 @@ export default function EditProfileScreen() {
           <>
             <Text
               style={{
-                color: "#7ee787",
-                textAlign: "center",
-                marginBottom: 10,
+                color:
+                  "#7ee787",
+
+                textAlign:
+                  "center",
+
+                marginBottom:
+                  10,
               }}
             >
               Nueva foto seleccionada
@@ -595,24 +822,47 @@ export default function EditProfileScreen() {
               onPress={
                 handleRemoveSelectedImage
               }
-              disabled={isSaving}
+              disabled={
+                isSaving
+              }
               style={{
-                alignSelf: "center",
-                borderWidth: 1,
-                borderColor: "#ffffff",
-                paddingVertical: 10,
-                paddingHorizontal: 20,
-                borderRadius: 8,
-                marginBottom: 22,
+                alignSelf:
+                  "center",
+
+                borderWidth:
+                  1,
+
+                borderColor:
+                  "#ffffff",
+
+                paddingVertical:
+                  10,
+
+                paddingHorizontal:
+                  20,
+
+                borderRadius:
+                  8,
+
+                marginBottom:
+                  22,
+
                 opacity:
-                  isSaving ? 0.6 : 1,
+                  isSaving
+                    ? 0.6
+                    : 1,
               }}
             >
               <Text
                 style={{
-                  color: "#ffffff",
-                  fontSize: 14,
-                  fontWeight: "600",
+                  color:
+                    "#ffffff",
+
+                  fontSize:
+                    14,
+
+                  fontWeight:
+                    "600",
                 }}
               >
                 Cancelar nueva foto
@@ -622,7 +872,8 @@ export default function EditProfileScreen() {
         ) : (
           <View
             style={{
-              marginBottom: 22,
+              marginBottom:
+                22,
             }}
           />
         )}
@@ -708,6 +959,215 @@ export default function EditProfileScreen() {
           maxLength={100}
         />
 
+        <View
+          style={[
+            styles.profileCard,
+            {
+              marginTop: 20,
+            },
+          ]}
+        >
+          <Text
+            style={styles.cardTitle}
+          >
+            Ubicación aproximada
+          </Text>
+
+          <Text
+            style={
+              styles.screenSubtitle
+            }
+          >
+            La ubicación permite ordenar
+            servicios por distancia. La
+            aplicación no mostrará tu
+            dirección exacta.
+          </Text>
+
+          {hasLocation ? (
+            <View
+              style={{
+                marginTop:
+                  14,
+              }}
+            >
+              <Text
+                style={
+                  styles.profileLine
+                }
+              >
+                Estado: ubicación guardada
+              </Text>
+
+              <Text
+                style={
+                  styles.profileLine
+                }
+              >
+                Latitud:{" "}
+                {formatCoordinate(
+                  latitude
+                )}
+              </Text>
+
+              <Text
+                style={
+                  styles.profileLine
+                }
+              >
+                Longitud:{" "}
+                {formatCoordinate(
+                  longitude
+                )}
+              </Text>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.profileLine,
+                {
+                  marginTop:
+                    14,
+
+                  color:
+                    "#999999",
+                },
+              ]}
+            >
+              Todavía no has guardado una ubicación.
+            </Text>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.primaryButton,
+              (
+                isLoadingLocation ||
+                isSaving
+              ) && {
+                opacity:
+                  0.6,
+              },
+            ]}
+            onPress={
+              handleUseCurrentLocation
+            }
+            disabled={
+              isLoadingLocation ||
+              isSaving
+            }
+          >
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
+              {isLoadingLocation
+                ? "Obteniendo ubicación..."
+                : hasLocation
+                  ? "Actualizar ubicación actual"
+                  : "Usar mi ubicación actual"}
+            </Text>
+          </TouchableOpacity>
+
+          {hasLocation ? (
+            <TouchableOpacity
+              style={
+                styles.dangerButton
+              }
+              onPress={
+                handleRemoveLocation
+              }
+              disabled={
+                isSaving
+              }
+            >
+              <Text
+                style={
+                  styles.primaryButtonText
+                }
+              >
+                Eliminar ubicación
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <Text
+          style={[
+            styles.cardTitle,
+            {
+              marginTop:
+                20,
+            },
+          ]}
+        >
+          Privacidad de ubicación
+        </Text>
+
+        {locationVisibilityOptions.map(
+          (option) => {
+            const selected =
+              locationVisibility ===
+              option.value;
+
+            return (
+              <TouchableOpacity
+                key={
+                  option.value
+                }
+                style={[
+                  styles.profileCard,
+
+                  {
+                    opacity:
+                      selected
+                        ? 1
+                        : 0.65,
+
+                    borderWidth:
+                      selected
+                        ? 2
+                        : 1,
+
+                    borderColor:
+                      selected
+                        ? "#FFFFFF"
+                        : "#333333",
+                  },
+                ]}
+                onPress={() =>
+                  setLocationVisibility(
+                    option.value
+                  )
+                }
+                disabled={
+                  isSaving
+                }
+              >
+                <Text
+                  style={
+                    styles.cardTitle
+                  }
+                >
+                  {selected
+                    ? "✓ "
+                    : ""}
+                  {option.title}
+                </Text>
+
+                <Text
+                  style={
+                    styles.profileLine
+                  }
+                >
+                  {option.description}
+                </Text>
+              </TouchableOpacity>
+            );
+          }
+        )}
+
         <Text
           style={styles.cardTitle}
         >
@@ -722,9 +1182,14 @@ export default function EditProfileScreen() {
           style={[
             styles.input,
             {
-              minHeight: 130,
-              textAlignVertical: "top",
-              paddingTop: 14,
+              minHeight:
+                130,
+
+              textAlignVertical:
+                "top",
+
+              paddingTop:
+                14,
             },
           ]}
           editable={!isSaving}
@@ -735,10 +1200,17 @@ export default function EditProfileScreen() {
 
         <Text
           style={{
-            color: "#999999",
-            textAlign: "right",
-            marginTop: 5,
-            marginBottom: 18,
+            color:
+              "#999999",
+
+            textAlign:
+              "right",
+
+            marginTop:
+              5,
+
+            marginBottom:
+              18,
           }}
         >
           {bio.length}/600
@@ -754,13 +1226,20 @@ export default function EditProfileScreen() {
           placeholder="Matemáticas, Inglés, Tecnología, Reparaciones"
           placeholderTextColor="#999"
           value={skillsText}
-          onChangeText={setSkillsText}
+          onChangeText={
+            setSkillsText
+          }
           style={[
             styles.input,
             {
-              minHeight: 90,
-              textAlignVertical: "top",
-              paddingTop: 14,
+              minHeight:
+                90,
+
+              textAlignVertical:
+                "top",
+
+              paddingTop:
+                14,
             },
           ]}
           editable={!isSaving}
@@ -773,12 +1252,12 @@ export default function EditProfileScreen() {
           style={[
             styles.screenSubtitle,
             {
-              marginBottom: 10,
+              marginBottom:
+                10,
             },
           ]}
         >
-          Separa cada habilidad con una
-          coma.
+          Separa cada habilidad con una coma.
         </Text>
 
         <View
@@ -811,7 +1290,9 @@ export default function EditProfileScreen() {
           onPress={
             handleSaveProfile
           }
-          disabled={isSaving}
+          disabled={
+            isSaving
+          }
         >
           <Text
             style={
@@ -827,9 +1308,13 @@ export default function EditProfileScreen() {
         <TouchableOpacity
           style={styles.backButton}
           onPress={() =>
-            router.replace("/profile")
+            router.replace(
+              "/profile"
+            )
           }
-          disabled={isSaving}
+          disabled={
+            isSaving
+          }
         >
           <Text
             style={

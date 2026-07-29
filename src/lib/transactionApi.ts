@@ -59,6 +59,7 @@ export type TransactionHistoryItem = {
   credits: number;
 
   date: string;
+  createdAt: string;
 
   serviceName: string;
 
@@ -67,6 +68,49 @@ export type TransactionHistoryItem = {
   status: TransactionStatus;
 };
 
+function isValidUuid(
+  value?: string | null
+): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function requireUuid(
+  value: string,
+  fieldName: string
+): void {
+  if (!isValidUuid(value)) {
+    throw new Error(
+      `${fieldName} no contiene un UUID válido.`
+    );
+  }
+}
+
+function normalizeTransactionResponse(
+  data:
+    | SupabaseTransaction
+    | SupabaseTransaction[]
+    | null
+): SupabaseTransaction {
+  const transaction =
+    Array.isArray(data)
+      ? data[0]
+      : data;
+
+  if (!transaction) {
+    throw new Error(
+      "Supabase no devolvió la transacción creada."
+    );
+  }
+
+  return transaction;
+}
+
 export async function getTransactionsByUserId(
   userId: string
 ): Promise<SupabaseTransaction[]> {
@@ -74,7 +118,15 @@ export async function getTransactionsByUserId(
     return [];
   }
 
-  const { data, error } = await supabase
+  requireUuid(
+    userId,
+    "userId"
+  );
+
+  const {
+    data,
+    error,
+  } = await supabase
     .from("transactions")
     .select("*")
     .or(
@@ -93,10 +145,44 @@ export async function getTransactionsByUserId(
   ) as SupabaseTransaction[];
 }
 
+export async function getTransactionById(
+  transactionId: string
+): Promise<SupabaseTransaction | null> {
+  requireUuid(
+    transactionId,
+    "transactionId"
+  );
+
+  const {
+    data,
+    error,
+  } = await supabase
+    .from("transactions")
+    .select("*")
+    .eq("id", transactionId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (
+    data as SupabaseTransaction | null
+  ) ?? null;
+}
+
 export async function getTransactionByRequestId(
   requestId: string
 ): Promise<SupabaseTransaction | null> {
-  const { data, error } = await supabase
+  requireUuid(
+    requestId,
+    "requestId"
+  );
+
+  const {
+    data,
+    error,
+  } = await supabase
     .from("transactions")
     .select("*")
     .eq("request_id", requestId)
@@ -107,46 +193,47 @@ export async function getTransactionByRequestId(
   }
 
   return (
-    (data as SupabaseTransaction | null) ??
-    null
-  );
+    data as SupabaseTransaction | null
+  ) ?? null;
 }
 
 export async function completeRequestTransaction(
   requestId: string
 ): Promise<SupabaseTransaction> {
-  if (!requestId) {
-    throw new Error(
-      "La solicitud no tiene un ID válido."
-    );
-  }
+  requireUuid(
+    requestId,
+    "requestId"
+  );
 
-  const { data, error } =
-    await supabase.rpc(
-      "complete_service_request",
-      {
-        p_request_id: requestId,
-      }
-    );
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "complete_service_request",
+    {
+      p_request_id:
+        requestId,
+    }
+  );
 
   if (error) {
     throw error;
   }
 
-  if (!data) {
-    throw new Error(
-      "Supabase no devolvió la transacción creada."
-    );
-  }
-
-  return data as SupabaseTransaction;
+  return normalizeTransactionResponse(
+    data as
+      | SupabaseTransaction
+      | SupabaseTransaction[]
+      | null
+  );
 }
 
 export function mapSupabaseTransactionToAppTransaction(
   item: SupabaseTransaction
 ): AppTransaction {
   return {
-    id: item.id,
+    id:
+      item.id,
 
     requestId:
       item.request_id,
@@ -198,31 +285,44 @@ export function mapTransactionToHistoryItem(
 
   const transactionDate =
     transaction.completed_at ||
+    transaction.cancelled_at ||
     transaction.created_at;
 
   return {
-    id: transaction.id,
+    id:
+      transaction.id,
 
-    type: isProvider
-      ? "earned"
-      : "spent",
+    type:
+      isProvider
+        ? "earned"
+        : "spent",
 
-    description: isProvider
-      ? `Ayudaste a ${transaction.requester_name}`
-      : `Recibiste ayuda de ${transaction.provider_name}`,
+    description:
+      isProvider
+        ? `Ayudaste a ${transaction.requester_name}`
+        : `Recibiste ayuda de ${transaction.provider_name}`,
 
     credits:
-      Number(transaction.hours) || 0,
+      Number(
+        transaction.hours
+      ) || 0,
 
     date:
-      transactionDate.slice(0, 10),
+      transactionDate.slice(
+        0,
+        10
+      ),
+
+    createdAt:
+      transactionDate,
 
     serviceName:
       transaction.service_name,
 
-    otherPerson: isProvider
-      ? transaction.requester_name
-      : transaction.provider_name,
+    otherPerson:
+      isProvider
+        ? transaction.requester_name
+        : transaction.provider_name,
 
     status:
       transaction.status,

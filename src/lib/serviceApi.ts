@@ -1,5 +1,9 @@
 import { supabase } from "./supabase";
 
+import {
+  validateCoordinates,
+} from "./locationApi";
+
 export type ServiceType =
   | "offer"
   | "request";
@@ -26,6 +30,59 @@ export type SupabaseService = {
   created_at: string;
 };
 
+export type NearbyServiceRow = {
+  service_id: string;
+
+  provider_user_id:
+    | string
+    | null;
+
+  provider_name: string;
+
+  title: string;
+  category: string;
+  mode: string;
+
+  credits:
+    | number
+    | string;
+
+  avatar:
+    | string
+    | null;
+
+  rating:
+    | number
+    | string
+    | null;
+
+  service_type:
+    ServiceType;
+
+  city:
+    | string
+    | null;
+
+  community:
+    | string
+    | null;
+
+  latitude:
+    | number
+    | null;
+
+  longitude:
+    | number
+    | null;
+
+  distance_km:
+    | number
+    | string
+    | null;
+
+  created_at: string;
+};
+
 export type AppService = {
   id: number;
   supabaseId: string;
@@ -48,6 +105,21 @@ export type AppService = {
   description: string;
 
   createdAt: string;
+
+  city: string;
+  community: string;
+
+  latitude:
+    | number
+    | null;
+
+  longitude:
+    | number
+    | null;
+
+  distanceKm:
+    | number
+    | null;
 };
 
 export type CreateServiceInput = {
@@ -60,12 +132,20 @@ export type CreateServiceInput = {
 
   credits: number;
 
-  avatar?: string | null;
-  rating?: number | null;
+  avatar?:
+    | string
+    | null;
 
-  service_type: ServiceType;
+  rating?:
+    | number
+    | null;
 
-  description?: string | null;
+  service_type:
+    ServiceType;
+
+  description?:
+    | string
+    | null;
 };
 
 export type UpdateServiceInput = {
@@ -78,12 +158,20 @@ export type UpdateServiceInput = {
 
   credits?: number;
 
-  avatar?: string | null;
-  rating?: number | null;
+  avatar?:
+    | string
+    | null;
 
-  service_type?: ServiceType;
+  rating?:
+    | number
+    | null;
 
-  description?: string | null;
+  service_type?:
+    ServiceType;
+
+  description?:
+    | string
+    | null;
 };
 
 function normalizeRequiredText(
@@ -143,7 +231,9 @@ function normalizeCredits(
     );
   }
 
-  return Math.round(credits);
+  return Math.round(
+    credits
+  );
 }
 
 function normalizeRating(
@@ -167,16 +257,26 @@ function createNumericAppId(
   uuid: string
 ): number {
   const numericCharacters =
-    uuid.replace(/\D/g, "");
+    uuid.replace(
+      /\D/g,
+      ""
+    );
 
   const shortenedValue =
-    numericCharacters.slice(0, 10);
+    numericCharacters.slice(
+      0,
+      10
+    );
 
   const parsedValue =
-    Number(shortenedValue);
+    Number(
+      shortenedValue
+    );
 
   if (
-    Number.isFinite(parsedValue) &&
+    Number.isFinite(
+      parsedValue
+    ) &&
     parsedValue > 0
   ) {
     return parsedValue;
@@ -185,12 +285,6 @@ function createNumericAppId(
   return Date.now();
 }
 
-/**
- * Obtener todas las publicaciones.
- *
- * Se ordenan desde la publicación
- * más reciente hasta la más antigua.
- */
 export async function getServices(): Promise<
   SupabaseService[]
 > {
@@ -213,9 +307,69 @@ export async function getServices(): Promise<
   ) as SupabaseService[];
 }
 
-/**
- * Obtener una publicación mediante UUID.
- */
+export async function getNearbyServices(
+  latitude: number,
+  longitude: number,
+  radiusKm = 10,
+  limit = 100
+): Promise<NearbyServiceRow[]> {
+  validateCoordinates(
+    latitude,
+    longitude
+  );
+
+  const normalizedRadius =
+    Number(radiusKm);
+
+  if (
+    !Number.isFinite(
+      normalizedRadius
+    ) ||
+    normalizedRadius <= 0
+  ) {
+    throw new Error(
+      "El radio de búsqueda debe ser mayor que cero."
+    );
+  }
+
+  const normalizedLimit =
+    Math.min(
+      Math.max(
+        Math.round(limit),
+        1
+      ),
+      500
+    );
+
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "get_nearby_services",
+    {
+      p_latitude:
+        latitude,
+
+      p_longitude:
+        longitude,
+
+      p_radius_km:
+        normalizedRadius,
+
+      p_limit:
+        normalizedLimit,
+    }
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return (
+    data ?? []
+  ) as NearbyServiceRow[];
+}
+
 export async function getServiceById(
   serviceId: string
 ): Promise<SupabaseService | null> {
@@ -234,7 +388,10 @@ export async function getServiceById(
   } = await supabase
     .from("services")
     .select("*")
-    .eq("id", serviceId)
+    .eq(
+      "id",
+      serviceId
+    )
     .maybeSingle();
 
   if (error) {
@@ -246,10 +403,6 @@ export async function getServiceById(
   ) ?? null;
 }
 
-/**
- * Obtener publicaciones creadas
- * por un usuario específico.
- */
 export async function getServicesByProviderUserId(
   providerUserId: string
 ): Promise<SupabaseService[]> {
@@ -281,17 +434,6 @@ export async function getServicesByProviderUserId(
   ) as SupabaseService[];
 }
 
-/**
- * Crear una publicación.
- *
- * Es fundamental guardar
- * provider_user_id para que:
- *
- * - el chat reconozca al proveedor;
- * - se detecten publicaciones propias;
- * - el perfil muestre sus publicaciones;
- * - las solicitudes usen UUID reales.
- */
 export async function createServiceInSupabase(
   input: CreateServiceInput
 ): Promise<SupabaseService> {
@@ -379,10 +521,6 @@ export async function createServiceInSupabase(
   return data as SupabaseService;
 }
 
-/**
- * Alias para código antiguo que pueda
- * importar createService().
- */
 export async function createService(
   input: CreateServiceInput
 ): Promise<SupabaseService> {
@@ -391,9 +529,6 @@ export async function createService(
   );
 }
 
-/**
- * Actualizar una publicación.
- */
 export async function updateServiceInSupabase(
   serviceId: string,
   input: UpdateServiceInput
@@ -514,7 +649,9 @@ export async function updateServiceInSupabase(
   }
 
   if (
-    Object.keys(payload).length === 0
+    Object.keys(
+      payload
+    ).length === 0
   ) {
     const existingService =
       await getServiceById(
@@ -536,7 +673,10 @@ export async function updateServiceInSupabase(
   } = await supabase
     .from("services")
     .update(payload)
-    .eq("id", serviceId)
+    .eq(
+      "id",
+      serviceId
+    )
     .select()
     .single();
 
@@ -547,10 +687,6 @@ export async function updateServiceInSupabase(
   return data as SupabaseService;
 }
 
-/**
- * Alias para código que importe
- * updateService().
- */
 export async function updateService(
   serviceId: string,
   input: UpdateServiceInput
@@ -561,9 +697,6 @@ export async function updateService(
   );
 }
 
-/**
- * Eliminar una publicación.
- */
 export async function deleteServiceInSupabase(
   serviceId: string
 ): Promise<boolean> {
@@ -577,7 +710,10 @@ export async function deleteServiceInSupabase(
   } = await supabase
     .from("services")
     .delete()
-    .eq("id", serviceId);
+    .eq(
+      "id",
+      serviceId
+    );
 
   if (error) {
     throw error;
@@ -586,10 +722,6 @@ export async function deleteServiceInSupabase(
   return true;
 }
 
-/**
- * Alias para código que importe
- * deleteService().
- */
 export async function deleteService(
   serviceId: string
 ): Promise<boolean> {
@@ -598,10 +730,6 @@ export async function deleteService(
   );
 }
 
-/**
- * Convertir una fila de Supabase
- * al formato utilizado por la app.
- */
 export function mapSupabaseServiceToAppService(
   item: SupabaseService
 ): AppService {
@@ -615,7 +743,8 @@ export function mapSupabaseServiceToAppService(
       item.id,
 
     providerUserId:
-      item.provider_user_id || "",
+      item.provider_user_id ||
+      "",
 
     person:
       item.provider_name ||
@@ -654,9 +783,113 @@ export function mapSupabaseServiceToAppService(
         : "offer",
 
     description:
-      item.description || "",
+      item.description ||
+      "",
 
     createdAt:
       item.created_at,
+
+    city:
+      "",
+
+    community:
+      "",
+
+    latitude:
+      null,
+
+    longitude:
+      null,
+
+    distanceKm:
+      null,
+  };
+}
+
+export function mapNearbyServiceToAppService(
+  item: NearbyServiceRow
+): AppService {
+  return {
+    id:
+      createNumericAppId(
+        item.service_id
+      ),
+
+    supabaseId:
+      item.service_id,
+
+    providerUserId:
+      item.provider_user_id ||
+      "",
+
+    person:
+      item.provider_name ||
+      "Proveedor",
+
+    service:
+      item.title ||
+      "Publicación",
+
+    category:
+      item.category ||
+      "Otra",
+
+    mode:
+      item.mode ||
+      "No especificada",
+
+    credits:
+      Number(
+        item.credits
+      ) || 0,
+
+    avatar:
+      item.avatar ||
+      "https://i.pravatar.cc/300?img=12",
+
+    rating:
+      Number(
+        item.rating
+      ) || 4.8,
+
+    serviceType:
+      item.service_type ===
+      "request"
+        ? "request"
+        : "offer",
+
+    description:
+      "",
+
+    createdAt:
+      item.created_at,
+
+    city:
+      item.city || "",
+
+    community:
+      item.community || "",
+
+    latitude:
+      item.latitude === null
+        ? null
+        : Number(
+            item.latitude
+          ),
+
+    longitude:
+      item.longitude === null
+        ? null
+        : Number(
+            item.longitude
+          ),
+
+    distanceKm:
+      item.distance_km ===
+      null
+        ? null
+        : Number(
+            item.distance_km
+          ),
   };
 }
