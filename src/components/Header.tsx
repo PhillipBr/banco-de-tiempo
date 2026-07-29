@@ -1,5 +1,6 @@
 import {
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -8,81 +9,107 @@ import {
   View,
 } from "react-native";
 
-import {
-  router,
-} from "expo-router";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 
-import {
-  useState,
-} from "react";
+import { useAuthContext } from "../context/AuthContext";
 
-import {
-  useAuthContext,
-} from "../context/AuthContext";
+const logo = require("../../assets/logo.png");
 
-const logo =
-  require("../../assets/logo.png");
+type AppRoute =
+  | "/"
+  | "/services"
+  | "/conversations"
+  | "/profile"
+  | "/login";
 
 export default function Header() {
-  const {
-    session,
-    signOut,
-  } = useAuthContext();
+  const { session, signOut } =
+    useAuthContext();
 
-  const {
-    width,
-  } = useWindowDimensions();
+  const { width: reactNativeWidth } =
+    useWindowDimensions();
 
-  const [
-    isMenuOpen,
-    setIsMenuOpen,
-  ] = useState(false);
+  const [browserWidth, setBrowserWidth] =
+    useState(reactNativeWidth);
 
+  const [isMenuOpen, setIsMenuOpen] =
+    useState(false);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== "web" ||
+      typeof window === "undefined"
+    ) {
+      setBrowserWidth(reactNativeWidth);
+      return;
+    }
+
+    const updateBrowserWidth = () => {
+      setBrowserWidth(
+        window.innerWidth ||
+          document.documentElement.clientWidth ||
+          reactNativeWidth
+      );
+    };
+
+    updateBrowserWidth();
+
+    window.addEventListener(
+      "resize",
+      updateBrowserWidth
+    );
+
+    window.addEventListener(
+      "orientationchange",
+      updateBrowserWidth
+    );
+
+    return () => {
+      window.removeEventListener(
+        "resize",
+        updateBrowserWidth
+      );
+
+      window.removeEventListener(
+        "orientationchange",
+        updateBrowserWidth
+      );
+    };
+  }, [reactNativeWidth]);
+
+  const currentWidth =
+    Platform.OS === "web"
+      ? browserWidth
+      : reactNativeWidth;
+
+  /*
+   * Usamos 900 px para asegurar que teléfonos
+   * y tablets pequeñas no muestren el menú horizontal.
+   */
   const isMobile =
-    width < 760;
+    currentWidth < 900;
 
-  const closeMenu =
-    () => {
-      setIsMenuOpen(false);
-    };
+  const navigateTo = (
+    pathname: AppRoute
+  ) => {
+    setIsMenuOpen(false);
+    router.push(pathname);
+  };
 
-  const navigateTo =
-    (
-      pathname:
-        | "/"
-        | "/services"
-        | "/conversations"
-        | "/profile"
-        | "/login"
-    ) => {
-      closeMenu();
+  const handleLogout = async () => {
+    setIsMenuOpen(false);
 
-      router.push(
-        pathname
-      );
-    };
+    await signOut();
 
-  const handleLogout =
-    async () => {
-      closeMenu();
-
-      await signOut();
-
-      router.replace(
-        "/login"
-      );
-    };
+    router.replace("/login");
+  };
 
   return (
-    <View
-      style={
-        headerStyles.wrapper
-      }
-    >
+    <View style={headerStyles.wrapper}>
       <View
         style={[
           headerStyles.header,
-
           isMobile &&
             headerStyles.headerMobile,
         ]}
@@ -91,29 +118,52 @@ export default function Header() {
           activeOpacity={0.85}
           style={[
             headerStyles.logoContainer,
-
             isMobile &&
               headerStyles.logoContainerMobile,
           ]}
-          onPress={() =>
-            navigateTo("/")
-          }
+          onPress={() => navigateTo("/")}
         >
           <Image
-            source={
-              logo
-            }
+            source={logo}
+            resizeMode="contain"
             style={[
               headerStyles.logoImage,
-
               isMobile &&
                 headerStyles.logoImageMobile,
             ]}
-            resizeMode="contain"
           />
         </TouchableOpacity>
 
-        {!isMobile ? (
+        {isMobile ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              isMenuOpen
+                ? "Cerrar menú"
+                : "Abrir menú"
+            }
+            style={({ pressed }) => [
+              headerStyles.menuButton,
+              pressed
+                ? headerStyles.buttonPressed
+                : null,
+            ]}
+            onPress={() =>
+              setIsMenuOpen(
+                (currentValue) =>
+                  !currentValue
+              )
+            }
+          >
+            <Text
+              style={
+                headerStyles.menuButtonText
+              }
+            >
+              {isMenuOpen ? "✕" : "☰"}
+            </Text>
+          </Pressable>
+        ) : (
           <View
             style={
               headerStyles.desktopNav
@@ -135,9 +185,7 @@ export default function Header() {
 
             <TouchableOpacity
               onPress={() =>
-                navigateTo(
-                  "/services"
-                )
+                navigateTo("/services")
               }
             >
               <Text
@@ -169,9 +217,7 @@ export default function Header() {
 
                 <TouchableOpacity
                   onPress={() =>
-                    navigateTo(
-                      "/profile"
-                    )
+                    navigateTo("/profile")
                   }
                 >
                   <Text
@@ -184,9 +230,7 @@ export default function Header() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={
-                    handleLogout
-                  }
+                  onPress={handleLogout}
                 >
                   <Text
                     style={[
@@ -200,60 +244,27 @@ export default function Header() {
               </>
             ) : (
               <TouchableOpacity
+                style={
+                  headerStyles.desktopLoginButton
+                }
                 onPress={() =>
-                  navigateTo(
-                    "/login"
-                  )
+                  navigateTo("/login")
                 }
               >
                 <Text
-                  style={[
-                    headerStyles.navText,
-                    headerStyles.loginText,
-                  ]}
+                  style={
+                    headerStyles.desktopLoginText
+                  }
                 >
                   Login
                 </Text>
               </TouchableOpacity>
             )}
           </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              isMenuOpen
-                ? "Cerrar menú"
-                : "Abrir menú"
-            }
-            style={({ pressed }) => [
-              headerStyles.menuButton,
-
-              pressed && {
-                opacity: 0.7,
-              },
-            ]}
-            onPress={() =>
-              setIsMenuOpen(
-                (current) =>
-                  !current
-              )
-            }
-          >
-            <Text
-              style={
-                headerStyles.menuButtonText
-              }
-            >
-              {isMenuOpen
-                ? "✕"
-                : "☰"}
-            </Text>
-          </Pressable>
         )}
       </View>
 
-      {isMobile &&
-      isMenuOpen ? (
+      {isMobile && isMenuOpen ? (
         <View
           style={
             headerStyles.mobileMenu
@@ -281,9 +292,7 @@ export default function Header() {
               headerStyles.mobileMenuItem
             }
             onPress={() =>
-              navigateTo(
-                "/services"
-              )
+              navigateTo("/services")
             }
           >
             <Text
@@ -321,9 +330,7 @@ export default function Header() {
                   headerStyles.mobileMenuItem
                 }
                 onPress={() =>
-                  navigateTo(
-                    "/profile"
-                  )
+                  navigateTo("/profile")
                 }
               >
                 <Text
@@ -337,18 +344,15 @@ export default function Header() {
 
               <TouchableOpacity
                 style={[
-                  headerStyles.mobileMenuItem,
-                  headerStyles.mobileLogoutItem,
+                  headerStyles.mobileActionButton,
+                  headerStyles.mobileLogoutButton,
                 ]}
-                onPress={
-                  handleLogout
-                }
+                onPress={handleLogout}
               >
                 <Text
-                  style={[
-                    headerStyles.mobileMenuText,
-                    headerStyles.logoutText,
-                  ]}
+                  style={
+                    headerStyles.mobileLogoutText
+                  }
                 >
                   Logout
                 </Text>
@@ -357,20 +361,17 @@ export default function Header() {
           ) : (
             <TouchableOpacity
               style={[
-                headerStyles.mobileMenuItem,
-                headerStyles.mobileLoginItem,
+                headerStyles.mobileActionButton,
+                headerStyles.mobileLoginButton,
               ]}
               onPress={() =>
-                navigateTo(
-                  "/login"
-                )
+                navigateTo("/login")
               }
             >
               <Text
-                style={[
-                  headerStyles.mobileMenuText,
-                  headerStyles.loginText,
-                ]}
+                style={
+                  headerStyles.mobileLoginText
+                }
               >
                 Login
               </Text>
@@ -386,204 +387,163 @@ const headerStyles =
   StyleSheet.create({
     wrapper: {
       width: "100%",
-      backgroundColor:
-        "#000000",
-      borderBottomWidth:
-        1,
-      borderBottomColor:
-        "#151515",
-      zIndex:
-        100,
+      maxWidth: "100%",
+      backgroundColor: "#000000",
+      borderBottomWidth: 1,
+      borderBottomColor: "#171717",
+      overflow: "hidden",
+      zIndex: 1000,
     },
 
     header: {
       width: "100%",
-      minHeight: 96,
-      backgroundColor:
-        "#000000",
-      paddingHorizontal:
-        32,
-      paddingVertical:
-        12,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "space-between",
+      minHeight: 88,
+      paddingHorizontal: 28,
+      paddingVertical: 10,
+      backgroundColor: "#000000",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
     },
 
     headerMobile: {
-      minHeight:
-        78,
-      paddingHorizontal:
-        18,
-      paddingVertical:
-        10,
+      minHeight: 72,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
     },
 
     logoContainer: {
-      width:
-        220,
-      height:
-        70,
-      justifyContent:
-        "center",
-      alignItems:
-        "flex-start",
-      flexShrink:
-        1,
+      width: 200,
+      height: 64,
+      alignItems: "flex-start",
+      justifyContent: "center",
+      flexShrink: 1,
     },
 
     logoContainerMobile: {
-      width:
-        180,
-      height:
-        58,
-      flexShrink:
-        1,
+      width: 135,
+      height: 50,
+      flexShrink: 1,
     },
 
     logoImage: {
-      width:
-        220,
-      height:
-        70,
+      width: 200,
+      height: 64,
     },
 
     logoImageMobile: {
-      width:
-        180,
-      height:
-        58,
+      width: 135,
+      height: 50,
     },
 
     desktopNav: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "flex-end",
-      gap:
-        22,
-      flexShrink:
-        0,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 20,
+      flexShrink: 0,
     },
 
     navText: {
-      color:
-        "#FFFFFF",
-      fontSize:
-        15,
-      fontWeight:
-        "600",
-    },
-
-    loginText: {
-      color:
-        "#FFFFFF",
+      color: "#FFFFFF",
+      fontSize: 15,
+      fontWeight: "600",
     },
 
     logoutText: {
-      color:
-        "#FF8B8B",
+      color: "#FF8B8B",
+    },
+
+    desktopLoginButton: {
+      backgroundColor: "#C1121F",
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 24,
+    },
+
+    desktopLoginText: {
+      color: "#FFFFFF",
+      fontSize: 15,
+      fontWeight: "700",
     },
 
     menuButton: {
-      width:
-        48,
-      height:
-        48,
-      borderWidth:
-        1,
-      borderColor:
-        "#333333",
-      borderRadius:
-        12,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        "#0C0C0C",
-      flexShrink:
-        0,
+      width: 44,
+      height: 44,
+      flexShrink: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#101010",
+      borderWidth: 1,
+      borderColor: "#363636",
+      borderRadius: 11,
     },
 
     menuButtonText: {
-      color:
-        "#FFFFFF",
-      fontSize:
-        27,
-      lineHeight:
-        30,
-      fontWeight:
-        "700",
+      color: "#FFFFFF",
+      fontSize: 25,
+      lineHeight: 29,
+      fontWeight: "700",
+    },
+
+    buttonPressed: {
+      opacity: 0.65,
     },
 
     mobileMenu: {
-      width:
-        "100%",
-      backgroundColor:
-        "#080808",
-      borderTopWidth:
-        1,
-      borderTopColor:
-        "#202020",
-      paddingHorizontal:
-        18,
-      paddingTop:
-        8,
-      paddingBottom:
-        16,
+      width: "100%",
+      paddingHorizontal: 16,
+      paddingTop: 4,
+      paddingBottom: 16,
+      backgroundColor: "#080808",
+      borderTopWidth: 1,
+      borderTopColor: "#202020",
     },
 
     mobileMenuItem: {
-      minHeight:
-        52,
-      justifyContent:
-        "center",
-      borderBottomWidth:
-        1,
-      borderBottomColor:
-        "#1B1B1B",
-      paddingHorizontal:
-        8,
+      width: "100%",
+      minHeight: 50,
+      paddingHorizontal: 10,
+      justifyContent: "center",
+      borderBottomWidth: 1,
+      borderBottomColor: "#202020",
     },
 
     mobileMenuText: {
-      color:
-        "#FFFFFF",
-      fontSize:
-        17,
-      fontWeight:
-        "600",
+      color: "#FFFFFF",
+      fontSize: 17,
+      fontWeight: "600",
     },
 
-    mobileLoginItem: {
-      marginTop:
-        8,
-      backgroundColor:
-        "#C1121F",
-      borderRadius:
-        12,
-      borderBottomWidth:
-        0,
-      paddingHorizontal:
-        16,
+    mobileActionButton: {
+      width: "100%",
+      minHeight: 50,
+      marginTop: 12,
+      paddingHorizontal: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 12,
     },
 
-    mobileLogoutItem: {
-      marginTop:
-        8,
-      backgroundColor:
-        "#18090A",
-      borderRadius:
-        12,
-      borderBottomWidth:
-        0,
-      paddingHorizontal:
-        16,
+    mobileLoginButton: {
+      backgroundColor: "#C1121F",
     },
-  })
+
+    mobileLogoutButton: {
+      backgroundColor: "#210C0E",
+      borderWidth: 1,
+      borderColor: "#6A1B21",
+    },
+
+    mobileLoginText: {
+      color: "#FFFFFF",
+      fontSize: 17,
+      fontWeight: "700",
+    },
+
+    mobileLogoutText: {
+      color: "#FF9A9A",
+      fontSize: 17,
+      fontWeight: "700",
+    },
+  });
